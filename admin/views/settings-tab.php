@@ -89,7 +89,7 @@ function ai_render_settings_tab() {
   -H "Authorization: Bearer <?php echo esc_attr(get_option('ai_groq_api_key') ?: 'YOUR_API_KEY'); ?>" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "llama-3.3-70b-versatile",
+    "model": "openai/gpt-oss-120b",
     "messages": [{"role": "user", "content": "Say hello"}]
   }'</pre>
     <?php

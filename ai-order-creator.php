@@ -2,10 +2,11 @@
 /*
 Plugin Name: AI Order Creator
 Description: Create WooCommerce orders from messy text using Groq AI.
-Version: 4.0
-Updated: 2026-08-17
+Version: 4.1
+Updated: 2026-08-23
 Author: Maruf Rahman
-Changelog: 4.0 - Fixed address parsing: leftover label junk (e.g. "নাম্বারঃ", "থানাঃ") no longer leaks into the address, numbered list markers ("1.", "2.") no longer get captured as field values, and multi-line address labels (e.g. "ঠিকানা") now capture all continuation lines instead of just the first.
+Changelog: 4.1 - Removed price detection entirely (deterministic and AI): it never appears in the input and was misreading hyphen-attached address numbers (e.g. "-১০৭৯") as prices, corrupting the address in the process.
+4.0 - Fixed address parsing: leftover label junk (e.g. "নাম্বারঃ", "থানাঃ") no longer leaks into the address, numbered list markers ("1.", "2.") no longer get captured as field values, and multi-line address labels (e.g. "ঠিকানা") now capture all continuation lines instead of just the first.
 3.9 - Split single-file plugin into a multi-file structure (mechanical refactor, no logic changes).
 */
 
@@ -17,7 +18,6 @@ define('AIOC_URL', plugin_dir_url(__FILE__));
 require_once AIOC_PATH . 'includes/logging.php';
 require_once AIOC_PATH . 'includes/text-utils.php';
 require_once AIOC_PATH . 'includes/phone.php';
-require_once AIOC_PATH . 'includes/price.php';
 require_once AIOC_PATH . 'includes/location.php';
 require_once AIOC_PATH . 'includes/address.php';
 require_once AIOC_PATH . 'includes/name.php';

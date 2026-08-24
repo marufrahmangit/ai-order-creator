@@ -11,7 +11,7 @@ function ai_render_order_creator_tab() {
             </div>
         <?php endif; ?>
         
-        <p>Paste messy customer information below. The AI tool will extract name, phone, address, district, and price details in milliseconds.</p>
+        <p>Paste messy customer information below. The AI tool will extract name, phone, address, and district details in milliseconds.</p>
         
         <form method="post">
             <?php wp_nonce_field('ai_create_order_action', 'ai_create_order_nonce'); ?>
@@ -24,7 +24,7 @@ function ai_render_order_creator_tab() {
             <input type="submit" name="ai_create_order"
                    class="button button-primary button-large"
                    value="Create Order with AI">
-            <p class="description" style="margin-top:8px;">Use preview first to verify the detected name, phone, address, state, and price before creating the order.</p>
+            <p class="description" style="margin-top:8px;">Use preview first to verify the detected name, phone, address, and state before creating the order.</p>
         </form>
 
         <div id="ai-last-order-card" style="max-width:800px;"></div>
@@ -64,9 +64,8 @@ function ai_render_order_creator_tab() {
         <h3>How It Works</h3>
         <ol>
             <li><strong>Paste</strong> any messy customer info (Bangla/English/mixed)</li>
-            <li><strong>AI</strong> extracts name, phone (11 digits), address, district, and price expressions</li>
+            <li><strong>AI</strong> extracts name, phone (11 digits), address, and district</li>
             <li><strong>WooCommerce order</strong> is created automatically with billing details</li>
-            <li><strong>Price extraction</strong> keeps the detected price text available on the order for manual review</li>
             <li><strong>Manual review</strong> - check the order details and add products as needed</li>
         </ol>
     <?php

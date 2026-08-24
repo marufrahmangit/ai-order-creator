@@ -39,11 +39,6 @@ function ai_process_order_text($text) {
             ai_log('WARNING: State not matched in WooCommerce states', $data['state']);
         }
 
-        if (!empty($data['price'])) {
-            $order->update_meta_data('_ai_extracted_price', (string) $data['price']);
-            $order->add_order_note('AI extracted price: ' . (string) $data['price']);
-        }
-
         if (!empty($data['customer_note'])) {
             $order->set_customer_note($data['customer_note']);
         }
@@ -70,8 +65,6 @@ function ai_process_order_text($text) {
             echo '<tr><td><strong>Phone</strong></td><td>' . esc_html($data['phone'] ?? 'N/A') . '</td></tr>';
             echo '<tr><td><strong>Address</strong></td><td>' . esc_html($data['address_line_1'] ?? 'N/A') . '</td></tr>';
             echo '<tr><td><strong>State</strong></td><td>' . esc_html($data['state'] ?? 'N/A') . ($state_code ? " (Code: $state_code)" : ' (Not matched)') . '</td></tr>';
-            echo '<tr><td><strong>Price</strong></td><td>' . esc_html(isset($data['price']) && $data['price'] !== '' ? (string) $data['price'] : 'N/A') . '</td></tr>';
-            echo '<tr><td><strong>Price Items</strong></td><td>' . esc_html(!empty($data['price_items']) ? ai_format_price_requests($data['price_items']) : 'N/A') . '</td></tr>';
             echo '<tr><td><strong>Customer Note</strong></td><td>' . nl2br(esc_html($data['customer_note'] ?? 'N/A')) . '</td></tr>';
             echo '</table>';
             echo '</div>';

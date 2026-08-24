@@ -81,13 +81,9 @@ function ai_score_address_line($line, $state) {
     return $score;
 }
 
-function ai_collect_address_candidates($text, $name, $phone, $state, $price) {
+function ai_collect_address_candidates($text, $name, $phone, $state) {
     $working = ai_normalize_text($text);
     $working = ai_remove_value_once($working, $name);
-
-    if ($price !== null) {
-        $working = ai_remove_price_value_once($working, (string) $price);
-    }
 
     foreach (ai_get_noise_patterns() as $pattern) {
         $working = preg_replace($pattern, ' ', $working);

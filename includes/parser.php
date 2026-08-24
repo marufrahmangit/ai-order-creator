@@ -21,33 +21,23 @@ function ai_build_deterministic_parse($text) {
         $state = ai_extract_state_from_text($state) ?: $state;
     }
 
-    $price = ai_extract_price_expression_from_text($normalized);
-    if ($price === null) {
-        $price = ai_extract_price($normalized);
-    }
-
     if ($name === '') {
         $name = ai_extract_name_from_lines($normalized, $state);
     }
 
     if ($address === '') {
-        $address = ai_collect_address_candidates($normalized, $name, $phone, $state, $price);
+        $address = ai_collect_address_candidates($normalized, $name, $phone, $state);
     }
 
     $address = ai_ensure_state_in_address($address, $state);
-    $price_requests = ai_parse_price_requests($price ?: '');
-
-    if ($price === null && !empty($price_requests)) {
-        $price = ai_format_price_requests($price_requests);
-    }
 
     return [
         'name' => ai_clean_line($name),
         'phone' => $phone,
         'address_line_1' => ai_clean_line($address),
         'state' => ai_clean_line($state),
-        'price' => $price,
-        'price_items' => $price_requests,
+        'price' => '',
+        'price_items' => [],
         'customer_note' => '',
     ];
 }
@@ -107,6 +97,7 @@ function ai_get_parsed_order_data($text) {
 
             $ai_data = ai_parse_response($raw);
             if ($ai_data) {
+                unset($ai_data['price'], $ai_data['price_items']);
                 $data = ai_merge_parsed_data($data, $ai_data);
             } else {
                 ai_log('ERROR: Failed to parse AI response', $raw);
@@ -128,32 +119,15 @@ function ai_get_parsed_order_data($text) {
     $data['phone'] = $phones[0] ?? '';
     $state_hint = ai_extract_state_hint_from_text($normalized_text);
     $data['state'] = ai_extract_state_hint_from_text($data['state'] ?? '') ?: $state_hint;
-    $data['price'] = isset($data['price']) && $data['price'] !== ''
-        ? ai_clean_line(ai_convert_bangla_digits($data['price']))
-        : ai_extract_price_expression_from_text($normalized_text);
-    if (empty($data['price'])) {
-        $data['price'] = ai_extract_price($normalized_text);
-    }
-    $data['price_items'] = ai_parse_price_requests($data['price'] ?? '');
-    if (empty($data['price_items'])) {
-        $fallback_price = ai_extract_price_expression_from_text($normalized_text);
-        if (!empty($fallback_price)) {
-            $data['price_items'] = ai_parse_price_requests($fallback_price);
-            if (!empty($data['price_items'])) {
-                $data['price'] = ai_format_price_requests($data['price_items']);
-            }
-        }
-    } elseif (!empty($data['price_items'])) {
-        $data['price'] = ai_format_price_requests($data['price_items']);
-    }
+    $data['price'] = '';
+    $data['price_items'] = [];
     $existing_address = isset($data['address_line_1']) ? ai_clean_line($data['address_line_1']) : '';
     if ($existing_address === '') {
         $existing_address = ai_collect_address_candidates(
             $normalized_text,
             $data['name'] ?? '',
             $data['phone'] ?? '',
-            $data['state'] ?? '',
-            $data['price'] ?? ''
+            $data['state'] ?? ''
         );
     }
     $data['address_line_1'] = ai_merge_address_parts($existing_address);

@@ -11,7 +11,7 @@ function ai_call_groq($text, array $deterministic_data = []) {
 
     ai_log('Calling Groq API with text', $text);
 
-    $system_prompt = 'You are a Bangladesh order parser for WooCommerce. Extract customer information from messy Bangla, English, or mixed-language chat messages and return ONLY a valid JSON object with these exact fields: {"name":"","phone":"","address_line_1":"","state":"","price":"","customer_note":""}
+    $system_prompt = 'You are a Bangladesh order parser for WooCommerce. Extract customer information from messy Bangla, English, or mixed-language chat messages and return ONLY a valid JSON object with these exact fields: {"name":"","phone":"","address_line_1":"","state":"","customer_note":""}
 
 Rules:
 - Ignore unrelated chatter, product notes, greetings, and duplicate fragments.
@@ -19,7 +19,6 @@ Rules:
 - State: Must be the Bangladesh district/city name that best matches WooCommerce state input, or empty string if not found.
 - Name: Customer full name only.
 - Address: Keep the full delivery address. If district/state is present in the message, keep it in address_line_1 as well.
-- Price: Preserve the price text exactly as mentioned for product pricing. Example: if text says 1100 + 1000, return "1100 + 1000". If text says 1200, return "1200". Do not calculate a total.
 - Customer_note: Put any extra useful delivery note, second phone number, or leftover customer instruction here. Leave empty if nothing useful remains.
 - Prefer the deterministic hints when they are plausible, but correct them if the raw text clearly shows a better answer.
 
@@ -28,7 +27,7 @@ Return ONLY the JSON object, no markdown, no explanations.';
     $user_payload = "RAW MESSAGE:\n" . $text . "\n\nDETERMINISTIC HINTS:\n" . wp_json_encode($deterministic_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
     $request_body = [
-        'model' => 'llama-3.3-70b-versatile',
+        'model' => 'openai/gpt-oss-120b',
         'messages' => [
             [
                 'role' => 'system',

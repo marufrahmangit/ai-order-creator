@@ -16,8 +16,6 @@ function ai_render_parse_preview(array $parsed) {
     echo '<tr><td><strong>Phone</strong></td><td>' . esc_html($parsed['data']['phone'] ?? '') . '</td></tr>';
     echo '<tr><td><strong>Address</strong></td><td>' . esc_html($parsed['data']['address_line_1'] ?? '') . '</td></tr>';
     echo '<tr><td><strong>State</strong></td><td>' . esc_html($parsed['data']['state'] ?? '') . '</td></tr>';
-    echo '<tr><td><strong>Price</strong></td><td>' . esc_html(isset($parsed['data']['price']) && $parsed['data']['price'] !== null ? (string) $parsed['data']['price'] : '') . '</td></tr>';
-    echo '<tr><td><strong>Price Items</strong></td><td>' . esc_html(!empty($parsed['data']['price_items']) ? ai_format_price_requests($parsed['data']['price_items']) : '') . '</td></tr>';
     echo '<tr><td><strong>Customer Note</strong></td><td>' . nl2br(esc_html($parsed['data']['customer_note'] ?? '')) . '</td></tr>';
     echo '</table>';
 
