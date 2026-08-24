@@ -3,7 +3,7 @@ if (!defined('ABSPATH')) exit;
 
 function ai_extract_phone_candidates($text) {
     $text = ai_convert_bangla_digits($text);
-    preg_match_all('/(?:\+?88[\s\-]*)?(?:0?1[3-9](?:[\s\-]*\d){8})\b/', $text, $matches);
+    preg_match_all('/(?:\+?88[\s\-]*)?(?:0?[\s\-]*1[3-9](?:[\s\-]*\d){8})\b/', $text, $matches);
     $phones = [];
 
     foreach ($matches[0] as $match) {
@@ -27,7 +27,7 @@ function ai_extract_phone_candidates($text) {
 
 function ai_extract_phone_like_candidates($text) {
     $text = ai_convert_bangla_digits($text);
-    preg_match_all('/(?:\+?88[\s\-]*)?(?:0?1[3-9](?:[\s\-]*\d){7,8})\b/', $text, $matches);
+    preg_match_all('/(?:\+?88[\s\-]*)?(?:0?[\s\-]*1[3-9](?:[\s\-]*\d){7,8})\b/', $text, $matches);
     $phones = [];
 
     foreach ($matches[0] as $match) {
@@ -56,7 +56,7 @@ function ai_strip_phone_values_from_text($text, array $known_phones = []) {
     // never occurs verbatim once the source had internal separators, so a
     // literal-string removal of it would silently no-op and leave the raw
     // phone text behind.
-    $text = preg_replace('/(?:\+?88[\s\-]*)?(?:0?1[3-9](?:[\s\-]*\d){7,8})\b/', ' ', (string) $text);
+    $text = preg_replace('/(?:\+?88[\s\-]*)?(?:0?[\s\-]*1[3-9](?:[\s\-]*\d){7,8})\b/', ' ', (string) $text);
 
     foreach (array_unique($known_phones) as $phone) {
         $text = ai_remove_value_once($text, $phone);

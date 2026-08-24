@@ -111,7 +111,7 @@ function ai_strip_address_label($line) {
     // stripping them would collapse "Road - 1, House - 29" down to "1, 29".
     $labels = [
         'address', 'adress', 'addres', 'addr', 'location',
-        'ঠিকানা', 'এড্রেস',
+        'ঠিকানা', 'এড্রেস', 'আমি থাকি',
     ];
 
     foreach ($labels as $label) {
@@ -134,8 +134,11 @@ function ai_get_meta_label_words() {
         'contact number', 'contact no', 'contact',
         'mobile no', 'mobile number', 'mobile num', 'mob no', 'mob number', 'mobile',
         'phone no', 'phone number', 'phone num', 'ph no', 'ph number',
+        'cell no', 'cell no.', 'cell number', 'cell phone', 'cell',
         'mob', 'phn', 'ph', 'phone',
         'মোবাইল নং', 'মোবাইল নাম্বার', 'ফোন নং', 'ফোন নাম্বার',
+        'আমার ফোন নম্বর', 'আমার ফোন নাম্বার', 'আমার মোবাইল নম্বর', 'আমার মোবাইল নাম্বার',
+        'আমার ফোন', 'আমার মোবাইল', 'আমার নাম্বার', 'আমার নম্বর',
         'ফোন', 'মোবাইল', 'নাম্বার', 'নম্বর',
         // Administrative-area labels: their value (e.g. "জয়পুরহাট") already
         // ends up in the separate State field, but the label word itself is
@@ -190,6 +193,7 @@ function ai_get_field_start_labels() {
     return [
         'name', 'customer name', 'cust name', 'নাম',
         'phone', 'mobile', 'mob', 'phn', 'ph', 'contact number', 'contact no', 'contact', 'number',
+        'cell no', 'cell no.', 'cell number', 'cell phone', 'cell',
         'ফোন', 'মোবাইল', 'নাম্বার', 'নম্বর',
         'address', 'adress', 'addres', 'addr', 'location', 'ঠিকানা', 'এড্রেস',
         'district', 'state', 'city', 'জেলা', 'জিলা', 'সিটি',

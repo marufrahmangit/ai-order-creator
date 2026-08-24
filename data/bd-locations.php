@@ -177,6 +177,7 @@ return [
         'banani' => 'Dhaka',
         'mirpur' => 'Dhaka',
         'mohammadpur' => 'Dhaka',
+        'mohammadia' => 'Dhaka',
         'motijheel' => 'Dhaka',
         'malibagh' => 'Dhaka',
         'malibag' => 'Dhaka',

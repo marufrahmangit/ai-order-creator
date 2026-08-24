@@ -2,10 +2,11 @@
 /*
 Plugin Name: AI Order Creator
 Description: Create WooCommerce orders from messy text using Groq AI.
-Version: 4.1
-Updated: 2026-08-23
+Version: 4.2
+Updated: 2026-08-24
 Author: Maruf Rahman
-Changelog: 4.1 - Removed price detection entirely (deterministic and AI): it never appears in the input and was misreading hyphen-attached address numbers (e.g. "-১০৭৯") as prices, corrupting the address in the process.
+Changelog: 4.2 - Recognized "Cell/Cell No/Cell Number" as a phone label; stripped the "আমি থাকি" address preamble and "আমার ফোন/মোবাইল/নাম্বার/নম্বর" filler so they no longer leak into the address; added "Mohammadia" to the Dhaka locality list; fixed the phone regex to consume "+880" even when a space separates it from the rest of the number (e.g. "+880 19 2362 1274"), so it no longer gets left behind in the address.
+4.1 - Removed price detection entirely (deterministic and AI): it never appears in the input and was misreading hyphen-attached address numbers (e.g. "-১০৭৯") as prices, corrupting the address in the process.
 4.0 - Fixed address parsing: leftover label junk (e.g. "নাম্বারঃ", "থানাঃ") no longer leaks into the address, numbered list markers ("1.", "2.") no longer get captured as field values, and multi-line address labels (e.g. "ঠিকানা") now capture all continuation lines instead of just the first.
 3.9 - Split single-file plugin into a multi-file structure (mechanical refactor, no logic changes).
 */
