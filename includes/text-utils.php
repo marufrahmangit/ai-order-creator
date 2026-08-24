@@ -14,6 +14,15 @@ function ai_normalize_text($text) {
     // like "।মোবাইল:01711330561" are split the same way commas and newlines are.
     $text = str_replace(["\r\n", "\r", "।"], "\n", $text);
     $text = preg_replace("/[ \t]+/u", ' ', $text);
+    // "P,O"/"P,S" is common rural-address shorthand for "P.O"/"P.S" (Post
+    // Office / Police Station) where a comma stands in for the period; left
+    // as-is, that comma gets mistaken for a field separator downstream and
+    // splits "P,o__Ghoramara" into orphaned "P" + "o__Ghoramara" fragments.
+    $text = preg_replace('/\bP\s*,\s*([OS])\b/i', 'P.$1', $text);
+    // Some messages use a run of underscores in place of a colon after a
+    // label (e.g. "Dist__Rajshahi", "Phone__01762947511"); treat it the same
+    // as a colon so the existing label-matching logic picks it up.
+    $text = preg_replace('/_{2,}/u', ': ', $text);
     // Strip leading ordered-list markers like "1." / "2)" from each line (e.g.
     // "1.Name : Nasrin Karim") so they don't get captured as part of a field's
     // value further down the pipeline. Only fires when a letter follows, so
@@ -110,7 +119,7 @@ function ai_strip_address_label($line) {
     // of the address (e.g. "Road - 5", "House - 10") and must be left intact —
     // stripping them would collapse "Road - 1, House - 29" down to "1, 29".
     $labels = [
-        'address', 'adress', 'addres', 'addr', 'location',
+        'address', 'adress', 'addres', 'addr', 'add', 'location',
         'ঠিকানা', 'এড্রেস', 'আমি থাকি',
     ];
 
@@ -135,6 +144,7 @@ function ai_get_meta_label_words() {
         'mobile no', 'mobile number', 'mobile num', 'mob no', 'mob number', 'mobile',
         'phone no', 'phone number', 'phone num', 'ph no', 'ph number',
         'cell no', 'cell no.', 'cell number', 'cell phone', 'cell',
+        'num', 'num.', 'm#', 'mob#', 'cell#', 'ph#',
         'mob', 'phn', 'ph', 'phone',
         'মোবাইল নং', 'মোবাইল নাম্বার', 'ফোন নং', 'ফোন নাম্বার',
         'আমার ফোন নম্বর', 'আমার ফোন নাম্বার', 'আমার মোবাইল নম্বর', 'আমার মোবাইল নাম্বার',
@@ -144,7 +154,8 @@ function ai_get_meta_label_words() {
         // ends up in the separate State field, but the label word itself is
         // noise once it shows up inline inside the address text.
         'থানা', 'উপজেলা', 'জেলা', 'জিলা', 'সিটি',
-        'address', 'adress', 'addres', 'addr', 'location', 'ঠিকানা', 'এড্রেস',
+        'district', 'dist', 'dist.', 'state',
+        'address', 'adress', 'addres', 'addr', 'add', 'location', 'ঠিকানা', 'এড্রেস',
     ];
 }
 
@@ -170,7 +181,15 @@ function ai_strip_meta_label_tokens($text) {
             // consume that separator so no stray punctuation is left behind.
             $pattern = '/(?<![\x{0985}-\x{09FE}])' . preg_quote($label, '/') . '(?![\x{0985}-\x{09FE}])(?:\s*[:\-.\x{0983}]\s*)?/iu';
         } else {
-            $pattern = '/\b' . preg_quote($label, '/') . '\b(?:\s*[:\-.]\s*)?/iu';
+            // A trailing \b only makes sense when the label itself ends in a
+            // word character (letter/digit). PCRE's \b requires a transition
+            // to/from a word character on both sides, so for a label ending
+            // in punctuation (e.g. "num.", "m#") with nothing left after it —
+            // which is exactly what happens once the phone digits that used
+            // to follow it are already stripped — \b can never match at the
+            // end of the string, silently leaving the label behind.
+            $trailing_boundary = preg_match('/[a-z0-9]$/i', $label) ? '\b' : '';
+            $pattern = '/\b' . preg_quote($label, '/') . $trailing_boundary . '(?:\s*[:\-.]\s*)?/iu';
         }
         $text = preg_replace($pattern, ' ', $text);
     }
@@ -193,10 +212,10 @@ function ai_get_field_start_labels() {
     return [
         'name', 'customer name', 'cust name', 'নাম',
         'phone', 'mobile', 'mob', 'phn', 'ph', 'contact number', 'contact no', 'contact', 'number',
-        'cell no', 'cell no.', 'cell number', 'cell phone', 'cell',
+        'cell no', 'cell no.', 'cell number', 'cell phone', 'cell', 'num', 'num.',
         'ফোন', 'মোবাইল', 'নাম্বার', 'নম্বর',
-        'address', 'adress', 'addres', 'addr', 'location', 'ঠিকানা', 'এড্রেস',
-        'district', 'state', 'city', 'জেলা', 'জিলা', 'সিটি',
+        'address', 'adress', 'addres', 'addr', 'add', 'location', 'ঠিকানা', 'এড্রেস',
+        'district', 'dist', 'dist.', 'state', 'city', 'জেলা', 'জিলা', 'সিটি',
         'price', 'total', 'amount', 'দাম', 'মূল্য',
     ];
 }

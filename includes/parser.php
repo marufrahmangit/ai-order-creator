@@ -5,8 +5,8 @@ function ai_build_deterministic_parse($text) {
     $normalized = ai_normalize_text($text);
 
     $name = ai_extract_labeled_field($normalized, ['name', 'customer name', 'cust name', 'নাম']);
-    $phone = ai_extract_labeled_field($normalized, ['phone', 'mobile', 'mob', 'phn', 'ph', 'contact number', 'contact no', 'contact', 'number', 'cell no', 'cell no.', 'cell number', 'cell phone', 'cell', 'ফোন', 'মোবাইল', 'নাম্বার']);
-    $address = ai_strip_meta_label_tokens(ai_extract_labeled_multiline_field($normalized, ['address', 'adress', 'addres', 'addr', 'location', 'ঠিকানা', 'এড্রেস']));
+    $phone = ai_extract_labeled_field($normalized, ['phone', 'mobile', 'mob', 'phn', 'ph', 'contact number', 'contact no', 'contact', 'number', 'cell no', 'cell no.', 'cell number', 'cell phone', 'cell', 'num', 'num.', 'ফোন', 'মোবাইল', 'নাম্বার']);
+    $address = ai_strip_meta_label_tokens(ai_extract_labeled_multiline_field($normalized, ['address', 'adress', 'addres', 'addr', 'add', 'location', 'ঠিকানা', 'এড্রেস']));
     $state = ai_extract_labeled_field($normalized, ['district', 'state', 'city', 'জেলা', 'জিলা', 'সিটি']);
 
     $phones = ai_extract_phone_candidates($phone ?: $normalized);
