@@ -59,7 +59,7 @@ function ai_strip_phone_values_from_text($text, array $known_phones = []) {
     $text = preg_replace('/(?:\+?88[\s\-]*)?(?:0?[\s\-]*1[\s\-]*[3-9](?:[\s\-]*\d){7,8})\b/', ' ', (string) $text);
 
     foreach (array_unique($known_phones) as $phone) {
-        $text = ai_remove_value_once($text, $phone);
+        $text = ai_remove_value_all($text, $phone);
     }
 
     return ai_clean_line(preg_replace('/\s{2,}/u', ' ', (string) $text));

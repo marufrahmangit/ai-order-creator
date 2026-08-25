@@ -270,10 +270,14 @@ function ai_extract_labeled_multiline_field($text, array $labels) {
     return '';
 }
 
-function ai_remove_value_once($text, $value) {
+function ai_remove_value_all($text, $value) {
     if ($value === '') {
         return $text;
     }
 
-    return preg_replace('/' . preg_quote($value, '/') . '/u', ' ', $text, 1);
+    // Remove every occurrence, not just the first — a name or phone number
+    // can legitimately appear more than once in the raw message (e.g. once
+    // up top and again near the signature), and a leftover duplicate would
+    // otherwise survive as junk in the address.
+    return preg_replace('/' . preg_quote($value, '/') . '/u', ' ', $text);
 }
