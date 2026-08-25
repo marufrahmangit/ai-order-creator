@@ -9,7 +9,7 @@
 
             function extractPhone(text) {
                 text = normalizeBangla(text);
-                var m = text.match(/(?:\+?88[\s\-]*)?(?:0?[\s\-]*1[3-9](?:[\s\-]*\d){8})\b/);
+                var m = text.match(/(?:\+?88[\s\-]*)?(?:0?[\s\-]*1[\s\-]*[3-9](?:[\s\-]*\d){8})\b/);
                 if (!m) return '';
                 var d = m[0].replace(/\D+/g, '');
                 if (d.indexOf('8801') === 0) d = '0' + d.slice(3);

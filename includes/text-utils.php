@@ -118,8 +118,13 @@ function ai_strip_address_label($line) {
     // here. Structural sub-labels like Road/House/District/Area describe a PART
     // of the address (e.g. "Road - 5", "House - 10") and must be left intact —
     // stripping them would collapse "Road - 1, House - 29" down to "1, 29".
+    // "location" is deliberately excluded: it's too common a lead-in word for
+    // OTHER compound labels (e.g. "Location & Postal Code:"), and this
+    // function's bare-whitespace fallback (no colon needed) would treat that
+    // whole compound phrase as if "location" alone were the address-wrapper
+    // label, discarding everything before it.
     $labels = [
-        'address', 'adress', 'addres', 'addr', 'add', 'location',
+        'address', 'adress', 'addres', 'addr', 'add',
         'ঠিকানা', 'এড্রেস', 'আমি থাকি',
     ];
 
