@@ -71,13 +71,4 @@ data/
 
 ## Changelog
 
-- **4.7** — Removed every repeated raw-message occurrence of an extracted name or phone number while building the address, so duplicate details repeated near a signature no longer survive as address junk.
-- **4.6** — Added alternate Bengali spellings for Tangail, Rangamati, and Chuadanga to the district/state list, improving detection across common spelling variants.
-- **4.5** — Stopped treating a bare `location` as an address-wrapper label, preventing data loss for compound labels such as “Location & Postal Code”; phone parsing now also accepts a space or dash between the second and third digits.
-- **4.4** — Recognized `M#`, `Mob#`, `Cell#`, and `Ph#` phone-label shorthand; normalized `P,O`/`P,S` and underscore separators; added `district`, `dist`, and `state` as removable address labels.
-- **4.3** — Recognized `Add`/`Add:` as address labels and `Num`/`Num:` as phone labels; added Babu Bazar to the Dhaka locality list.
-- **4.2** — Recognized `Cell`, `Cell No`, and `Cell Number` phone labels; removed common Bangla address/phone filler from addresses; added Mohammadia to the Dhaka locality list; fixed `+880` phone parsing when separated by a space.
-
-- **4.1** — Removed price detection entirely (deterministic parsing, AI prompt, order meta/notes, and preview UI). It was never provided in the input and its regex heuristics were misreading hyphen-attached address numbers (e.g. house/plot numbers like "-১০৭৯") as prices, corrupting the address in the process.
-- **4.0** — Fixed address parsing: leftover label junk (e.g. "নাম্বারঃ", "থানাঃ") no longer leaks into the address, numbered list markers ("1.", "2.") are no longer captured as field values, and multi-line address labels (e.g. "ঠিকানা") now capture all continuation lines.
-- **3.9** — Split single-file plugin into a multi-file structure (mechanical refactor, no logic changes).
+See [CHANGELOG.md](CHANGELOG.md) for the complete release history.
