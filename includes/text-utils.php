@@ -149,7 +149,7 @@ function ai_get_meta_label_words() {
         'mobile no', 'mobile number', 'mobile num', 'mob no', 'mob number', 'mobile',
         'phone no', 'phone number', 'phone num', 'ph no', 'ph number',
         'cell no', 'cell no.', 'cell number', 'cell phone', 'cell',
-        'num', 'num.', 'm#', 'mob#', 'cell#', 'ph#',
+        'num', 'num.', 'm#', 'mob#', 'cell#', 'ph#', 'number',
         'mob', 'phn', 'ph', 'phone',
         'মোবাইল নং', 'মোবাইল নাম্বার', 'ফোন নং', 'ফোন নাম্বার',
         'আমার ফোন নম্বর', 'আমার ফোন নাম্বার', 'আমার মোবাইল নম্বর', 'আমার মোবাইল নাম্বার',

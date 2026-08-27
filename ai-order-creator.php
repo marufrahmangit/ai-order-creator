@@ -2,10 +2,11 @@
 /*
 Plugin Name: AI Order Creator
 Description: Create WooCommerce orders from messy text using Groq AI.
-Version: 4.7
+Version: 4.8
 Updated: 2026-08-25
 Author: Maruf Rahman
-Changelog: 4.7 - Duplicate name/phone occurrences in the raw message (e.g. name repeated once at the top and again near the signature) are now removed everywhere they appear when building the address, instead of only the first occurrence — a leftover duplicate no longer survives as junk in the address.
+Changelog: 4.8 - Recognized bare "Number" as a strippable phone label — it was already recognized for extracting the phone value itself, but missing from the separate list used to clean up the leftover label word, so "Number:" survived as junk in the address after its digits were stripped.
+4.7 - Duplicate name/phone occurrences in the raw message (e.g. name repeated once at the top and again near the signature) are now removed everywhere they appear when building the address, instead of only the first occurrence — a leftover duplicate no longer survives as junk in the address.
 4.6 - Added "টাংগাইল" (Tangail), "রাঙ্গামাটি" (Rangamati), and "চুয়াডাংগা" (Chuadanga) as alternate spellings in the state/district list — Bengali's ঙ্গ-conjunct-vs-ং-anusvara spelling variance meant these districts weren't being detected under their commonly-typed alternate spelling.
 4.5 - Stopped treating a bare "location" as the address-wrapper label (it was matching inside compound sub-labels like "Location & Postal Code:" and discarding every address line before it); allowed a space/dash between the 2nd and 3rd phone digits (the one remaining rigid digit boundary in the phone regex) so numbers grouped like "০১ ৯১১ ৪৯৪৮৫১" are recognized and stripped from the address instead of leaking through or failing to extract at all.
 4.4 - Recognized "M#"/"Mob#"/"Cell#"/"Ph#" as phone-label shorthand, fixing a latent bug where a label ending in punctuation (e.g. "num.", "m#") with nothing left after it could never match its trailing boundary check; normalized "P,O"/"P,S" (Post Office/Police Station shorthand) and runs of underscores used as a colon substitute so labels like "Dist__Rajshahi"/"Phone__..." are recognized instead of leaking into the address; added "district"/"dist"/"state" as strippable address labels.
