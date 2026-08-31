@@ -2,6 +2,12 @@
 
 All notable changes to AI Order Creator are documented in this file.
 
+## 4.9
+
+- Split the create path into logic and presentation: `ai_create_order_from_data()` in `includes/order-creator.php` now returns an order ID or `WP_Error` and produces no output, while the success/error notices and the debug details table moved to `ai_render_order_result()` in `admin/views/creator-result.php`.
+- Consolidated the flat shipping rates into a single table in `includes/shipping.php` (`ai_get_shipping_rate()`), applied by `ai_apply_shipping()` from both the creator and the order-edit screen hooks.
+- Fixed orders being saved with a total of 0: the create path never called `calculate_totals()`, which applying shipping now does.
+
 ## 4.7
 
 - Removed every repeated raw-message occurrence of an extracted name or phone number while building the address, so duplicate details repeated near a signature no longer survive as address junk.
