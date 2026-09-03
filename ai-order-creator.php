@@ -2,10 +2,11 @@
 /*
 Plugin Name: Order Ops
 Description: Create WooCommerce orders from messy text using Groq AI.
-Version: 5.0
+Version: 5.1
 Updated: 2026-08-31
 Author: Maruf Rahman
-Changelog: 5.0 - Renamed the plugin to "Order Ops" (folder name, text domain, and ai_ function prefixes unchanged so the live site stays activated). Reorganized includes/ into parsing/, orders/, and rest/ subdirectories and moved data/bd-locations.php under includes/parsing/data/ - file moves only, no logic changes. Added a REST foundation in the aioc/v1 namespace: a permanent authenticated GET /aioc/v1/ping route for verifying auth and CORS, capability-gated on manage_woocommerce with WP core Application Passwords for auth, plus CORS headers scoped to aioc/v1 routes only and driven by a new "App Origin" setting (no wildcard fallback - an unset or mismatched origin gets no CORS grant).
+Changelog: 5.1 - A name repeated only in part elsewhere in the message (e.g. "Monika Sarker Moni Monika Biswas" up top and just "Monika Sarker Moni" again further down) is now recognized as a partial repeat of the already-resolved name and excluded from the address, instead of leaking in as its own address segment.
+5.0 - Renamed the plugin to "Order Ops" (folder name, text domain, and ai_ function prefixes unchanged so the live site stays activated). Reorganized includes/ into parsing/, orders/, and rest/ subdirectories and moved data/bd-locations.php under includes/parsing/data/ - file moves only, no logic changes. Added a REST foundation in the aioc/v1 namespace: a permanent authenticated GET /aioc/v1/ping route for verifying auth and CORS, capability-gated on manage_woocommerce with WP core Application Passwords for auth, plus CORS headers scoped to aioc/v1 routes only and driven by a new "App Origin" setting (no wildcard fallback - an unset or mismatched origin gets no CORS grant).
 4.9 - Separated order-creation logic from admin presentation and centralized shipping: order-creator.php is now output-free logic returning an order ID or WP_Error, the success/error notices and debug table moved to admin/views/creator-result.php, and the flat shipping rates (Dhaka 80, Gazipur 120, elsewhere 150) now live in a single rate table in includes/shipping.php used by both the creator and the order-edit screen hooks. Fixed orders being saved with a total of 0 - the create path never called calculate_totals(), which applying shipping now does.
 4.8 - Recognized bare "Number" as a strippable phone label — it was already recognized for extracting the phone value itself, but missing from the separate list used to clean up the leftover label word, so "Number:" survived as junk in the address after its digits were stripped.
 4.7 - Duplicate name/phone occurrences in the raw message (e.g. name repeated once at the top and again near the signature) are now removed everywhere they appear when building the address, instead of only the first occurrence — a leftover duplicate no longer survives as junk in the address.
@@ -21,7 +22,7 @@ Changelog: 5.0 - Renamed the plugin to "Order Ops" (folder name, text domain, an
 
 if (!defined('ABSPATH')) exit;
 
-define('AIOC_VERSION', '5.0');
+define('AIOC_VERSION', '5.1');
 define('AIOC_PATH', plugin_dir_path(__FILE__));
 define('AIOC_URL', plugin_dir_url(__FILE__));
 

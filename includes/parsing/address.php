@@ -84,6 +84,7 @@ function ai_score_address_line($line, $state) {
 function ai_collect_address_candidates($text, $name, $phone, $state) {
     $working = ai_normalize_text($text);
     $working = ai_remove_value_all($working, $name);
+    $name_clean = ai_clean_line($name);
 
     foreach (ai_get_noise_patterns() as $pattern) {
         $working = preg_replace($pattern, ' ', $working);
@@ -118,6 +119,14 @@ function ai_collect_address_candidates($text, $name, $phone, $state) {
         $normalized_has_keywords = $normalized_segment !== $segment;
 
         if (ai_is_probable_name_line($normalized_segment) && count($parts) === 0 && !$is_state_line && !$normalized_has_keywords && count($segments) === 1) {
+            continue;
+        }
+
+        // The name isn't always repeated verbatim — e.g. "Monika Sarker Moni
+        // Monika Biswas" up top and just "Monika Sarker Moni" again further
+        // down. If this name-like segment is wholly contained in the already
+        // -resolved name, it's a partial repeat of it, not new address info.
+        if ($name_clean !== '' && ai_is_probable_name_line($normalized_segment) && stripos($name_clean, $normalized_segment) !== false) {
             continue;
         }
 
