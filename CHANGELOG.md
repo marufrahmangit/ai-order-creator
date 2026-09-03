@@ -2,6 +2,14 @@
 
 All notable changes to AI Order Creator are documented in this file.
 
+## 5.0
+
+- Renamed the plugin to **Order Ops**. The plugin folder, text domain, and `ai_` function prefixes are unchanged, so the live site stays activated.
+- Reorganized `includes/` into `parsing/`, `orders/`, and `rest/` subdirectories, and moved `data/bd-locations.php` to `includes/parsing/data/bd-locations.php`. File moves only - no logic changes.
+- Added a REST foundation under the `aioc/v1` namespace, authenticated with WP core Application Passwords (Basic auth) and gated on the `manage_woocommerce` capability via `ai_rest_permission_check()`. No route is public.
+- Added a permanent `GET /aioc/v1/ping` route returning `ok`, `user`, and `version`, for verifying auth and CORS end to end.
+- Added CORS support scoped to `aioc/v1` routes only, driven by the new **App Origin** setting. An unset or mismatched origin receives no CORS headers - there is no wildcard fallback. `OPTIONS` preflights get a 200 with headers and an empty body.
+
 ## 4.9
 
 - Split the create path into logic and presentation: `ai_create_order_from_data()` in `includes/order-creator.php` now returns an order ID or `WP_Error` and produces no output, while the success/error notices and the debug details table moved to `ai_render_order_result()` in `admin/views/creator-result.php`.

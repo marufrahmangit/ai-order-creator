@@ -15,7 +15,7 @@ function ai_get_state_aliases() {
         $aliases[strtolower($name)] = $name;
     }
 
-    $manual = require AIOC_PATH . 'data/bd-locations.php';
+    $manual = require AIOC_PATH . 'includes/parsing/data/bd-locations.php';
 
     foreach ($manual as $alias => $name) {
         $aliases[strtolower(trim($alias))] = $name;

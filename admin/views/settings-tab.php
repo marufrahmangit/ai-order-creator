@@ -48,6 +48,22 @@ function ai_render_settings_tab() {
                 </tr>
                 
                 <tr>
+                    <th scope="row">App Origin</th>
+                    <td>
+                        <input type="text" name="ai_app_origin"
+                               value="<?php echo esc_attr(get_option('ai_app_origin')); ?>"
+                               style="width:500px;"
+                               placeholder="https://app.example.com">
+                        <p class="description">
+                            Origin allowed to call the <code>aioc/v1</code> REST API from a browser.
+                            Include the scheme and omit any trailing slash, e.g.
+                            <code>https://app.example.com</code>. Leave empty to send no CORS
+                            headers at all.
+                        </p>
+                    </td>
+                </tr>
+
+                <tr>
                     <th scope="row">Debug Mode</th>
                     <td>
                         <label>

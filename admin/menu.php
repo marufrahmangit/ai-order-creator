@@ -34,6 +34,11 @@ add_action('admin_menu', function () {
 add_action('admin_init', function () {
     register_setting('ai_order_creator', 'ai_groq_api_key');
     register_setting('ai_order_creator', 'ai_debug_mode');
+    register_setting('ai_order_creator', 'ai_app_origin', [
+        'type'              => 'string',
+        'sanitize_callback' => 'ai_sanitize_app_origin',
+        'default'           => '',
+    ]);
 });
 
 function ai_order_creator_page() {
