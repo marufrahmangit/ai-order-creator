@@ -10,23 +10,9 @@ function ai_ajax_lookup_last_order() {
 
     $raw_phone = isset($_POST['phone']) ? sanitize_text_field(wp_unslash($_POST['phone'])) : '';
 
-    // Normalize Bangla digits to ASCII and strip non-digit chars
-    $phone = strtr($raw_phone, [
-        '০' => '0', '১' => '1', '২' => '2', '৩' => '3', '৪' => '4',
-        '৫' => '5', '৬' => '6', '৭' => '7', '৮' => '8', '৯' => '9',
-    ]);
-    $phone = preg_replace('/\D+/', '', $phone);
+    $phone = ai_normalize_bd_phone($raw_phone);
 
-    // Normalize +88 / 88 prefixes
-    if (strpos($phone, '8801') === 0) {
-        $phone = '0' . substr($phone, 3);
-    } elseif (strpos($phone, '801') === 0) {
-        $phone = '0' . substr($phone, 2);
-    } elseif (strlen($phone) === 10 && strpos($phone, '1') === 0) {
-        $phone = '0' . $phone;
-    }
-
-    if (!preg_match('/^01[3-9]\d{8}$/', $phone)) {
+    if ($phone === '') {
         wp_send_json_error('Invalid phone number');
     }
 

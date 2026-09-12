@@ -1,23 +1,38 @@
 <?php
 if (!defined('ABSPATH')) exit;
 
+/**
+ * Normalize a single raw phone string to a canonical BD mobile number.
+ *
+ * Converts Bangla digits to ASCII, drops every non-digit, then folds the
+ * 8801.../801.../1... prefix variants onto a leading 0.
+ *
+ * @param string $raw Raw user-supplied phone text.
+ * @return string The 11-digit number, or '' if it is not a valid BD mobile.
+ */
+function ai_normalize_bd_phone($raw) {
+    $digits = preg_replace('/\D+/', '', ai_convert_bangla_digits($raw));
+
+    if (strpos($digits, '8801') === 0) {
+        $digits = '0' . substr($digits, 3);
+    } elseif (strpos($digits, '801') === 0) {
+        $digits = '0' . substr($digits, 2);
+    } elseif (strlen($digits) === 10 && strpos($digits, '1') === 0) {
+        $digits = '0' . $digits;
+    }
+
+    return preg_match('/^01[3-9]\d{8}$/', $digits) ? $digits : '';
+}
+
 function ai_extract_phone_candidates($text) {
     $text = ai_convert_bangla_digits($text);
     preg_match_all('/(?:\+?88[\s\-]*)?(?:0?[\s\-]*1[\s\-]*[3-9](?:[\s\-]*\d){8})\b/', $text, $matches);
     $phones = [];
 
     foreach ($matches[0] as $match) {
-        $digits = preg_replace('/\D+/', '', $match);
+        $digits = ai_normalize_bd_phone($match);
 
-        if (strpos($digits, '8801') === 0) {
-            $digits = '0' . substr($digits, 3);
-        } elseif (strpos($digits, '801') === 0) {
-            $digits = '0' . substr($digits, 2);
-        } elseif (strlen($digits) === 10 && strpos($digits, '1') === 0) {
-            $digits = '0' . $digits;
-        }
-
-        if (preg_match('/^01[3-9]\d{8}$/', $digits)) {
+        if ($digits !== '') {
             $phones[] = $digits;
         }
     }
