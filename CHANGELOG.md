@@ -2,6 +2,12 @@
 
 All notable changes to AI Order Creator are documented in this file.
 
+## 5.5
+
+- Fixed disabled variations being addable to orders via `GET /aioc/v1/products`. A variation's post status encodes its Enabled checkbox, so `private` there means disabled - variations do not inherit their parent's status. The 5.4 status widening was applied too broadly and let disabled variations through.
+- Variation status checks are now publish-only, via a dedicated `ai_rest_variation_status_allowed()` that is deliberately narrower than the product-level rule.
+- The `wc_get_products()` status argument, the parent status check and the exact-SKU path still accept both `publish` and `private`, which is what keeps this store's private catalogue reachable.
+
 ## 5.4
 
 - Fixed `GET /aioc/v1/products` returning nothing on this store. It filtered to published products only, but the catalogue is kept at post status `private` because the storefront is unused and orders are taken internally.

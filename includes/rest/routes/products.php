@@ -105,6 +105,24 @@ function ai_rest_product_status_allowed(WC_Product $product) {
 }
 
 /**
+ * Whether a variation's own post status allows it to be returned.
+ *
+ * Publish-only, deliberately narrower than ai_rest_product_status_allowed():
+ * a variation's post status encodes its Enabled checkbox, so 'private' there
+ * means disabled, and a disabled variation must never be addable to an order.
+ *
+ * Variations do NOT inherit their parent's status, so this stays correct for
+ * this store's private catalogue - a private parent's enabled variations are
+ * still 'publish'. The parent itself is checked with the wider product rule.
+ *
+ * @param WC_Product_Variation $variation
+ * @return bool
+ */
+function ai_rest_variation_status_allowed(WC_Product_Variation $variation) {
+    return $variation->get_status() === 'publish';
+}
+
+/**
  * Parent-level product ids matching the term by name or by SKU.
  *
  * Two separate queries, merged: wc_get_products()'s 's' searches post title
@@ -145,7 +163,7 @@ function ai_rest_search_parent_product_ids($search) {
  * @return array|null
  */
 function ai_rest_variation_row(WC_Product_Variation $variation) {
-    if (!ai_rest_product_status_allowed($variation)) {
+    if (!ai_rest_variation_status_allowed($variation)) {
         return null;
     }
 
@@ -270,7 +288,7 @@ function ai_rest_get_products(WP_REST_Request $request) {
                 continue;
             }
 
-            if (!ai_rest_product_status_allowed($variation)) {
+            if (!ai_rest_variation_status_allowed($variation)) {
                 continue;
             }
 

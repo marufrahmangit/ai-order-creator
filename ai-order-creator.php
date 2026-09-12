@@ -2,10 +2,11 @@
 /*
 Plugin Name: Order Ops
 Description: Create WooCommerce orders from messy text using Groq AI.
-Version: 5.4
-Updated: 2026-09-08
+Version: 5.5
+Updated: 2026-09-12
 Author: Maruf Rahman
-Changelog: 5.4 - Fixed GET /products returning nothing on this store: the endpoint filtered to published products only, but the catalogue is kept at post status 'private' because the storefront is unused and orders are taken internally. Both 'publish' and 'private' are now accepted across every query path - the name search, the SKU search, and the variation expansion - while 'draft', 'pending' and 'trash' stay excluded. Catalog visibility is deliberately not consulted, so a product hidden from the storefront is still addable to an order. Also wrapped the response as {"products": [...]} to match the order endpoints, and made limit=0 and non-numeric limits fall back to the default of 20 instead of clamping to 1.
+Changelog: 5.5 - Fixed disabled variations being addable to orders via GET /products. A variation's post status encodes its Enabled checkbox, so 'private' there means disabled rather than inheriting the parent's visibility; the 5.4 status widening was applied too broadly and let disabled variations through. Variation checks are now publish-only via a dedicated ai_rest_variation_status_allowed(), while the wc_get_products() status argument, the parent status check and the exact-SKU path keep accepting both publish and private - that is what makes this store's private catalogue reachable.
+5.4 - Fixed GET /products returning nothing on this store: the endpoint filtered to published products only, but the catalogue is kept at post status 'private' because the storefront is unused and orders are taken internally. Both 'publish' and 'private' are now accepted across every query path - the name search, the SKU search, and the variation expansion - while 'draft', 'pending' and 'trash' stay excluded. Catalog visibility is deliberately not consulted, so a product hidden from the storefront is still addable to an order. Also wrapped the response as {"products": [...]} to match the order endpoints, and made limit=0 and non-numeric limits fall back to the default of 20 instead of clamping to 1.
 5.3 - Added a read-only product search endpoint to the aioc/v1 REST namespace: GET /products?search=&limit=, returning a flat list of purchasable items - one row per thing that can be added to an order. Simple products yield one row each, variable parents are excluded in favour of a row per variation (named with its attribute summary), and grouped, external and all other types are skipped. Matches product name and SKU independently, includes out-of-stock items with is_in_stock false rather than filtering them out, and restricts results to published products only.
 5.2 - Added read-only order endpoints to the aioc/v1 REST namespace: GET /orders (paginated, optional search and status filters) and GET /orders/{id}, both capability-gated like the rest of the namespace. Search runs the term through the new shared phone normalizer and does an exact billing_phone lookup when it is a valid BD mobile, otherwise falls back to a customer-name search. Trashed orders are excluded and an unrecognized status slug is rejected with a 400. Every monetary value is a bare numeric string with no currency formatting or markup. Extracted the phone normalization that was inline in ajax.php into ai_normalize_bd_phone() in includes/parsing/phone.php, now shared by the AJAX lookup, the parser's phone extraction, and the REST search.
 5.1 - A name repeated only in part elsewhere in the message (e.g. "Monika Sarker Moni Monika Biswas" up top and just "Monika Sarker Moni" again further down) is now recognized as a partial repeat of the already-resolved name and excluded from the address, instead of leaking in as its own address segment.
@@ -25,7 +26,7 @@ Changelog: 5.4 - Fixed GET /products returning nothing on this store: the endpoi
 
 if (!defined('ABSPATH')) exit;
 
-define('AIOC_VERSION', '5.4');
+define('AIOC_VERSION', '5.5');
 define('AIOC_PATH', plugin_dir_path(__FILE__));
 define('AIOC_URL', plugin_dir_url(__FILE__));
 

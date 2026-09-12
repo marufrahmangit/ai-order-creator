@@ -2,9 +2,9 @@
 
 Working brief for resuming this project cold. Present state only — git log is the history.
 
-Plugin header: **Order Ops v5.4**, Updated 2026-09-08. Live runs v4.9. Staging last
-received **5.3**; 5.4 is committed but NOT yet uploaded, so the private-product fix is
-not live on staging.
+Plugin header: **Order Ops v5.5**, Updated 2026-09-12. Live runs v4.9. Staging last
+received **5.3**; 5.4 and 5.5 are committed but NOT yet uploaded, so neither the
+private-product fix nor the variation fix is live on staging.
 
 ## Goal
 
@@ -67,6 +67,11 @@ parser becomes one feature inside it, not the whole tool.
 - Out-of-stock products are returned to the client with `is_in_stock` false, not
   filtered out. The picker greys them and blocks adding. Write endpoints must re-check
   stock independently.
+- Product status rules are split on purpose (`includes/rest/routes/products.php`):
+  `ai_rest_product_statuses()` returns publish + private and is used for the
+  `wc_get_products()` status arg, the parent check and the exact-SKU path;
+  `ai_rest_variation_status_allowed()` is publish-only, because a variation's status
+  means enabled/disabled. Do not collapse these into one rule (5.4 did; 5.5 undid it).
 
 ## Build steps
 
@@ -75,15 +80,15 @@ parser becomes one feature inside it, not the whole tool.
 | 1 | Logic/presentation split, shipping consolidation | done | 4.9 (`f0972a8`) |
 | 2 | Restructure, Order Ops rename, REST foundation + ping | done | 5.0 (`9ab4bd3`) |
 | 3a | Read endpoints — orders list, single order | done, **verified on staging** | 5.2 |
-| 3b | Read endpoints — product search | done, awaiting first staging test | 5.3–5.4 |
+| 3b | Read endpoints — product search | done, awaiting first staging test | 5.3–5.5 |
 | 4 | Write endpoints — parse, create, update, trash, restore | not started | — |
 | 5 | PWA shell — subdomain, auth, order list | not started | — |
 | 6 | Create/edit form with product picker | not started | — |
 | 7 | Manifest, service worker, install prompt | not started | — |
 
 Step 3b detail: 5.3 product search, 5.4 product status fix (private catalogue) +
-response envelope + limit fallback. 5.4 has not been uploaded to staging, so nothing in
-it has been exercised.
+response envelope + limit fallback, 5.5 variation status fix. Neither 5.4 nor 5.5 has
+been uploaded to staging, so nothing in either has been exercised.
 
 v5.1 (`089ac2f`) was an unrelated parser fix (partial-duplicate names in the address),
 not a build step.
@@ -123,14 +128,6 @@ Next: upload 5.4 to staging, re-check `/ping` reports 5.4, then exercise `/produ
 
 ## Unverified / open
 
-- **Variation status filter contradicts the stated rule.** The Environment section
-  above says variation queries are publish-only, because `private` means disabled.
-  `includes/rest/routes/products.php` currently accepts publish AND private for
-  variations, at `ai_rest_variation_row()` and in the expansion loop inside
-  `ai_rest_get_products()` — both call `ai_rest_product_status_allowed()`, which
-  returns `['publish','private']`. As written, **disabled variations are returned and
-  addable to orders.** The parent and query-level checks should keep both statuses;
-  only the two variation checks need to go back to publish-only. Not yet fixed.
 - Whether `wc_get_products(['sku' => $term])` does partial or exact matching
 - Whether that `sku` arg splits the term on commas
 - Variation-level SKUs are only findable by exact match, via
