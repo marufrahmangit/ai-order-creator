@@ -2,6 +2,13 @@
 
 All notable changes to AI Order Creator are documented in this file.
 
+## 5.6
+
+- Fixed a fatal error that made every request to `GET /aioc/v1/products` return a 500 before the handler ran. The `limit` parameter used `intval` as its `sanitize_callback`, but WordPress invokes sanitize and validate callbacks with three arguments (value, request, parameter name) and `intval()` accepts at most two, so PHP 8 raised an uncaught `ArgumentCountError` inside `WP_REST_Request::sanitize_params()`.
+- Every argument callback in the REST layer now goes through a single-argument `ai_rest_*` wrapper defined in `includes/rest/rest.php`. No bare PHP built-in is registered as a callback anywhere, which also makes the rule greppable.
+- `absint`, `sanitize_text_field` and `__return_true` are WordPress userland functions that ignore extra arguments and were never broken, but are wrapped as well so there is one uniform pattern and no judgement call at the call site.
+- Parameter clamping is unchanged: `limit` casts to int, falls back to 20 below 1, and is capped at 50.
+
 ## 5.5
 
 - Fixed disabled variations being addable to orders via `GET /aioc/v1/products`. A variation's post status encodes its Enabled checkbox, so `private` there means disabled - variations do not inherit their parent's status. The 5.4 status widening was applied too broadly and let disabled variations through.

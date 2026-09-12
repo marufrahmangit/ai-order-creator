@@ -185,7 +185,7 @@ function ai_rest_variation_row(WC_Product_Variation $variation) {
  * ai_rest_search_parent_product_ids() only ever matches parents, so a SKU that
  * belongs to a variation rather than its parent would otherwise be unfindable.
  * wc_get_product_id_by_sku() looks across products and variations alike. This
- * is exact-match only - see the accompanying report.
+ * is exact-match only - see docs/PROJECT-STATE.md.
  *
  * @param string $search
  * @return array|null A row, or null if nothing usable matched.
@@ -312,15 +312,15 @@ add_action('rest_api_init', function () {
             'search' => [
                 'type'              => 'string',
                 'required'          => true,
-                'sanitize_callback' => 'sanitize_text_field',
+                'sanitize_callback' => 'ai_rest_sanitize_text',
             ],
             'limit' => [
                 'type'              => 'integer',
                 'default'           => 20,
-                'sanitize_callback' => 'intval',
+                'sanitize_callback' => 'ai_rest_sanitize_int',
                 // Bypasses the default integer validation so a non-numeric
                 // value falls back to the default instead of erroring.
-                'validate_callback' => '__return_true',
+                'validate_callback' => 'ai_rest_validate_any',
             ],
         ],
     ]);

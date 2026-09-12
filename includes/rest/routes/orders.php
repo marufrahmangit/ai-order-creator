@@ -147,10 +147,10 @@ function ai_rest_resolve_status_arg($status) {
  * A term that normalizes to a valid BD mobile becomes an exact billing_phone
  * lookup; anything else is treated as a customer name search.
  *
- * NOTE: the name-search branch uses the HPOS order-table query args ('s' with
- * 'search_filter' => 'customers'). This could NOT be verified against the
- * installed WooCommerce version - see the accompanying report. It is isolated
- * in this function so it can be swapped without touching the handlers.
+ * The name-search branch uses the HPOS order-table query args ('s' with
+ * 'search_filter' => 'customers'). Confirmed on staging (WooCommerce 11.0.1,
+ * HPOS): it does partial, mid-name matching. Kept isolated in this function so
+ * it can be swapped without touching the handlers. See docs/PROJECT-STATE.md.
  *
  * @param array  $args
  * @param string $search
@@ -248,22 +248,22 @@ add_action('rest_api_init', function () {
             'page' => [
                 'type'              => 'integer',
                 'default'           => 1,
-                'sanitize_callback' => 'absint',
+                'sanitize_callback' => 'ai_rest_sanitize_absint',
             ],
             'per_page' => [
                 'type'              => 'integer',
                 'default'           => 20,
-                'sanitize_callback' => 'absint',
+                'sanitize_callback' => 'ai_rest_sanitize_absint',
             ],
             'search' => [
                 'type'              => 'string',
                 'default'           => '',
-                'sanitize_callback' => 'sanitize_text_field',
+                'sanitize_callback' => 'ai_rest_sanitize_text',
             ],
             'status' => [
                 'type'              => 'string',
                 'default'           => '',
-                'sanitize_callback' => 'sanitize_text_field',
+                'sanitize_callback' => 'ai_rest_sanitize_text',
             ],
         ],
     ]);
@@ -276,7 +276,7 @@ add_action('rest_api_init', function () {
             'id' => [
                 'type'              => 'integer',
                 'required'          => true,
-                'sanitize_callback' => 'absint',
+                'sanitize_callback' => 'ai_rest_sanitize_absint',
             ],
         ],
     ]);

@@ -2,9 +2,10 @@
 
 Working brief for resuming this project cold. Present state only — git log is the history.
 
-Plugin header: **Order Ops v5.5**, Updated 2026-09-12. Live runs v4.9. Staging last
-received **5.3**; 5.4 and 5.5 are committed but NOT yet uploaded, so neither the
-private-product fix nor the variation fix is live on staging.
+Plugin header: **Order Ops v5.6**, Updated 2026-09-12. Live runs v4.9. Staging is
+running at least **5.4** — its debug.log carried the `intval` fatal, which only exists
+in 5.4+ — but the exact version is unconfirmed; re-check with `/ping`. 5.6 is committed
+and not yet uploaded.
 
 ## Goal
 
@@ -46,6 +47,13 @@ parser becomes one feature inside it, not the whole tool.
   deliberately left alone.
 - No raw SQL. Use `wc_get_orders()` / `wc_get_products()`.
 - Pagination params clamp rather than 400.
+- Never register a bare PHP built-in as a `sanitize_callback` or `validate_callback`.
+  WordPress invokes them with three arguments (value, request, param name), so any
+  built-in with a fixed arity of 2 or fewer is a latent PHP 8 fatal — `intval` cost a
+  500 on every `/products` request. Use the single-argument `ai_rest_sanitize_*` /
+  `ai_rest_validate_*` wrappers in `includes/rest/rest.php`. Every callback in the REST
+  layer is an `ai_*` function, so `grep "_callback'.*=> '" | grep -v "ai_"` should stay
+  empty.
 - Logic files produce no output. Presentation lives in `admin/views/`.
 
 ## Product decisions
@@ -80,15 +88,16 @@ parser becomes one feature inside it, not the whole tool.
 | 1 | Logic/presentation split, shipping consolidation | done | 4.9 (`f0972a8`) |
 | 2 | Restructure, Order Ops rename, REST foundation + ping | done | 5.0 (`9ab4bd3`) |
 | 3a | Read endpoints — orders list, single order | done, **verified on staging** | 5.2 |
-| 3b | Read endpoints — product search | done, awaiting first staging test | 5.3–5.5 |
+| 3b | Read endpoints — product search | done, 500 on staging pre-5.6; re-test needed | 5.3–5.6 |
 | 4 | Write endpoints — parse, create, update, trash, restore | not started | — |
 | 5 | PWA shell — subdomain, auth, order list | not started | — |
 | 6 | Create/edit form with product picker | not started | — |
 | 7 | Manifest, service worker, install prompt | not started | — |
 
 Step 3b detail: 5.3 product search, 5.4 product status fix (private catalogue) +
-response envelope + limit fallback, 5.5 variation status fix. Neither 5.4 nor 5.5 has
-been uploaded to staging, so nothing in either has been exercised.
+response envelope + limit fallback, 5.5 variation status fix, 5.6 sanitize-callback
+arity fatal. `/products` has never returned a successful response on staging — it 500d
+under 5.4/5.5 and 5.6 is not uploaded yet. Nothing in 5.4–5.6 is exercised.
 
 v5.1 (`089ac2f`) was an unrelated parser fix (partial-duplicate names in the address),
 not a build step.
@@ -122,9 +131,12 @@ endpoints) is fully verified.**
 - Trash exclusion — two trashed orders absent from unfiltered results.
 - `GET /products` with publish-only status returned an empty array. This is what
   identified the private-product-status problem that 5.4 fixes.
+- `GET /products` returned 500 under 5.4/5.5, from an uncaught `ArgumentCountError` in
+  `WP_REST_Request::sanitize_params()` — the `intval` sanitize callback. Confirmed in
+  staging's debug.log; fixed in 5.6.
 
-Next: upload 5.4 to staging, re-check `/ping` reports 5.4, then exercise `/products`
-(step 3b) and record the results here.
+Next: upload 5.6, confirm `/ping` reports 5.6, then exercise `/products` (step 3b) and
+record the results here. It has never returned a successful response.
 
 ## Unverified / open
 

@@ -3,6 +3,59 @@ if (!defined('ABSPATH')) exit;
 
 define('AIOC_REST_NAMESPACE', 'aioc/v1');
 
+/*
+ * Argument callbacks for register_rest_route().
+ *
+ * WP_REST_Request::sanitize_params() invokes a sanitize_callback as
+ * call_user_func($cb, $value, $request, $param_name), and validate_callback
+ * the same way - always three arguments. A bare PHP built-in with a fixed
+ * arity of 2 or fewer therefore raises ArgumentCountError on PHP 8, which
+ * surfaces as an uncaught 500 before the route handler ever runs. 'intval'
+ * did exactly that to every /products request.
+ *
+ * So: never register a bare built-in as a callback. Every callback in this
+ * namespace is an ai_* function taking only the value, which also makes the
+ * rule greppable - any callback here not prefixed ai_ is suspect.
+ *
+ * WordPress userland helpers (absint, sanitize_text_field, __return_true)
+ * happen to tolerate extra arguments, but are wrapped anyway so there is one
+ * uniform pattern and no judgement call at the call site.
+ */
+
+/**
+ * @param mixed $value
+ * @return int
+ */
+function ai_rest_sanitize_int($value) {
+    return (int) $value;
+}
+
+/**
+ * @param mixed $value
+ * @return int
+ */
+function ai_rest_sanitize_absint($value) {
+    return absint($value);
+}
+
+/**
+ * @param mixed $value
+ * @return string
+ */
+function ai_rest_sanitize_text($value) {
+    return sanitize_text_field($value);
+}
+
+/**
+ * Accepts any value. Used to skip WP's schema validation where the handler
+ * clamps instead of rejecting.
+ *
+ * @return true
+ */
+function ai_rest_validate_any() {
+    return true;
+}
+
 /**
  * Shared permission callback for every aioc/v1 route. No route is public.
  *
