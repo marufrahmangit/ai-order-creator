@@ -2,9 +2,9 @@
 
 Working brief for resuming this project cold. Present state only — git log is the history.
 
-Plugin header: **Order Ops v5.4**, Updated 2026-09-08. Live runs v4.9; staging carries
-5.x. Versions 4.9 and 5.0–5.1 are separate commits; 5.2–5.4 landed together with this
-file.
+Plugin header: **Order Ops v5.4**, Updated 2026-09-08. Live runs v4.9. Staging last
+received **5.3**; 5.4 is committed but NOT yet uploaded, so the private-product fix is
+not live on staging.
 
 ## Goal
 
@@ -29,6 +29,8 @@ parser becomes one feature inside it, not the whole tool.
   DIRECTORY NAME must never change — renaming deactivates it on the live site. After
   every upload, verify with `GET /aioc/v1/ping` and check the returned version matches
   the local plugin header. A stale version causes misleading 404s on new routes.
+  `AIOC_VERSION` and the header `Version:` must be bumped together: `/ping` reports the
+  constant, so a half-bump reports success while serving stale code.
 
 ## Conventions
 
@@ -72,14 +74,16 @@ parser becomes one feature inside it, not the whole tool.
 |---|------|-------|---------|
 | 1 | Logic/presentation split, shipping consolidation | done | 4.9 (`f0972a8`) |
 | 2 | Restructure, Order Ops rename, REST foundation + ping | done | 5.0 (`9ab4bd3`) |
-| 3 | Read endpoints — orders list, single order, product search | done | 5.2–5.4 |
+| 3a | Read endpoints — orders list, single order | done, **verified on staging** | 5.2 |
+| 3b | Read endpoints — product search | done, awaiting first staging test | 5.3–5.4 |
 | 4 | Write endpoints — parse, create, update, trash, restore | not started | — |
 | 5 | PWA shell — subdomain, auth, order list | not started | — |
 | 6 | Create/edit form with product picker | not started | — |
 | 7 | Manifest, service worker, install prompt | not started | — |
 
-Step 3 detail: 5.2 orders list + single order, 5.3 product search, 5.4 product status
-fix (private catalogue) + response envelope + limit fallback.
+Step 3b detail: 5.3 product search, 5.4 product status fix (private catalogue) +
+response envelope + limit fallback. 5.4 has not been uploaded to staging, so nothing in
+it has been exercised.
 
 v5.1 (`089ac2f`) was an unrelated parser fix (partial-duplicate names in the address),
 not a build step.
@@ -93,16 +97,29 @@ Routes currently registered, all `GET`, all read-only:
 
 ## Verified
 
-**Nothing.** No request has been run against staging at any point. No endpoint in this
-plugin — including `/ping` — has been exercised against a real WordPress install.
+Confirmed by real requests against staging.cartmixbd.com. **Step 3a (order read
+endpoints) is fully verified.**
 
-Everything to date was verified only structurally (path/symbol resolution, brace
-balance, absence of raw SQL or `wc_price()` in the REST layer) or by simulating logic
-in Python. See Unverified / open.
+- `GET /ping` — 200, returns user and version.
+- `GET /orders?per_page=3` — 4505 orders total, 1502 pages. Pagination arithmetic
+  correct.
+- `GET /orders/11323` — line item 3600.00 + shipping 80.00 = total 3680.00, matching
+  the admin order screen. Billing state `BD-13` resolved to label "Dhaka".
+- `GET /orders?search=01771160171` and `?search=8801771160171` — both return the same
+  single order, confirming `ai_normalize_bd_phone()` prefix folding.
+- `GET /orders?search=Fahmida` — matches mid-name ("Sumaiya Fahmida Neha"), confirming
+  `'s'` + `search_filter => 'customers'` does partial name matching on HPOS. This was
+  previously flagged unverified; it works.
+- `GET /orders?status=pending` and `?status=wc-pending` — identical results, 48 orders,
+  so `wc-` prefix normalization works.
+- `GET /orders?status=nonsense` — 400 `aioc_invalid_status`.
+- `GET /orders?per_page=100` — exactly 50 rows. Clamping works.
+- Trash exclusion — two trashed orders absent from unfiltered results.
+- `GET /products` with publish-only status returned an empty array. This is what
+  identified the private-product-status problem that 5.4 fixes.
 
-First action for a fresh session: curl `/ping` against staging with an application
-password, confirm it returns `{"ok":true,...}` and that `version` matches the plugin
-header. Record the result here.
+Next: upload 5.4 to staging, re-check `/ping` reports 5.4, then exercise `/products`
+(step 3b) and record the results here.
 
 ## Unverified / open
 
@@ -119,18 +136,14 @@ header. Record the result here.
 - Variation-level SKUs are only findable by exact match, via
   `wc_get_product_id_by_sku()` in `ai_rest_exact_sku_row()`. The parent-first search
   cannot reach a partial variation SKU.
-- The customer-name branch of the orders search uses the HPOS args
-  `'s'` + `'search_filter' => 'customers'`. Never confirmed against WooCommerce 11.0.1.
-  Also note the order creator stores the whole customer name in `billing_first_name`
-  and never sets a last name.
 - CORS has never been exercised — curl sends no Origin header. First real test is the
   PWA.
 - WordPress core's `rest_send_cors_headers()` reflects any Origin API-wide.
   `ai_rest_cors_headers()` strips those headers for `aioc/v1` routes when the
   configured origin is empty or mismatched. Untested.
 - Claude Code's environment has no php binary and no WooCommerce source, so nothing is
-  linted or run. All verification is structural or simulated. Behaviour against the
-  real install must be confirmed by curl.
+  linted or run there. Local checks are structural or simulated only; behaviour must be
+  confirmed by curl against staging, as was done for step 3a.
 
 ## Housekeeping
 
@@ -138,9 +151,6 @@ header. Record the result here.
 - README.md and the CHANGELOG.md intro line still say "AI Order Creator" rather than
   "Order Ops".
 - CHANGELOG.md is missing the 4.8 entry; the plugin header has it.
-- `AIOC_VERSION` in `ai-order-creator.php` duplicates the header `Version:` line. Both
-  must be bumped together — `/ping` reports `AIOC_VERSION`, so a mismatch makes the
-  post-deploy version check lie.
 
 ## Update rule
 
