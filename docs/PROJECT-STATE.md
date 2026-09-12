@@ -2,10 +2,10 @@
 
 Working brief for resuming this project cold. Present state only — git log is the history.
 
-Plugin header: **Order Ops v5.6**, Updated 2026-09-12. Live runs v4.9. Staging is
+Plugin header: **Order Ops v5.7**, Updated 2026-09-12. Live runs v4.9. Staging is
 running at least **5.4** — its debug.log carried the `intval` fatal, which only exists
-in 5.4+ — but the exact version is unconfirmed; re-check with `/ping`. 5.6 is committed
-and not yet uploaded.
+in 5.4+ — but the exact version is unconfirmed; re-check with `/ping`. 5.6 and 5.7 are
+committed and not yet uploaded.
 
 ## Goal
 
@@ -75,6 +75,15 @@ parser becomes one feature inside it, not the whole tool.
 - Out-of-stock products are returned to the client with `is_in_stock` false, not
   filtered out. The picker greys them and blocks adding. Write endpoints must re-check
   stock independently.
+- Staff search products by PRICE, not by name — they type "2500" to find the item
+  costing 2500. `/products` matches a numeric term against the real price first, then
+  name/SKU. Do not rely on this catalogue's names happening to embed the price; that is
+  incidental, not a property of the data.
+- The step 6 product picker must enforce the same 3-character minimum client-side
+  (don't fire a request below it), debounce input at roughly 250–300ms, and cancel
+  in-flight requests on each new keystroke so responses can't arrive out of order.
+- Search minimum is 3 characters, so prices below 100 are not searchable by price.
+  Accepted trade-off; revisit if sub-100 items appear.
 - Product status rules are split on purpose (`includes/rest/routes/products.php`):
   `ai_rest_product_statuses()` returns publish + private and is used for the
   `wc_get_products()` status arg, the parent check and the exact-SKU path;
@@ -88,7 +97,7 @@ parser becomes one feature inside it, not the whole tool.
 | 1 | Logic/presentation split, shipping consolidation | done | 4.9 (`f0972a8`) |
 | 2 | Restructure, Order Ops rename, REST foundation + ping | done | 5.0 (`9ab4bd3`) |
 | 3a | Read endpoints — orders list, single order | done, **verified on staging** | 5.2 |
-| 3b | Read endpoints — product search | done, 500 on staging pre-5.6; re-test needed | 5.3–5.6 |
+| 3b | Read endpoints — product search | done, never yet succeeded on staging; re-test needed | 5.3–5.7 |
 | 4 | Write endpoints — parse, create, update, trash, restore | not started | — |
 | 5 | PWA shell — subdomain, auth, order list | not started | — |
 | 6 | Create/edit form with product picker | not started | — |
@@ -96,8 +105,9 @@ parser becomes one feature inside it, not the whole tool.
 
 Step 3b detail: 5.3 product search, 5.4 product status fix (private catalogue) +
 response envelope + limit fallback, 5.5 variation status fix, 5.6 sanitize-callback
-arity fatal. `/products` has never returned a successful response on staging — it 500d
-under 5.4/5.5 and 5.6 is not uploaded yet. Nothing in 5.4–5.6 is exercised.
+arity fatal, 5.7 price-first search + 3-char minimum. `/products` has never returned a
+successful response on staging — it 500d under 5.4/5.5, and 5.6/5.7 are not uploaded.
+Nothing in 5.4–5.7 is exercised.
 
 v5.1 (`089ac2f`) was an unrelated parser fix (partial-duplicate names in the address),
 not a build step.
@@ -140,6 +150,20 @@ record the results here. It has never returned a successful response.
 
 ## Unverified / open
 
+- **How to query products by price.** `ai_rest_price_match_product_ids()` passes a
+  `price` argument to `wc_get_products()`, which maps onto a `_price` meta comparison —
+  a STRING match, so it alone would not match "250" against a stored "250.00". Whether
+  WooCommerce 11.0.1 supports the argument at all is unconfirmed. The function therefore
+  re-checks every candidate numerically in PHP, capped at 500 candidates, so results are
+  correct either way and a silently-ignored argument degrades rather than floods. If
+  staging shows the argument is ignored, the options are: pass a `meta_query` with
+  `'type' => 'NUMERIC'` (needs confirming that `wc_get_products()` forwards `meta_query`),
+  or read `wc_product_meta_lookup.min_price`, which is numeric but means raw SQL and is
+  excluded by convention. Settle this before step 6.
+- Price search finds variable parents by their `_price`, which WooCommerce syncs to the
+  cheapest variation. A variation priced at the term under a parent with a cheaper
+  variation is therefore not found. Unquantified — depends on whether this catalogue
+  uses variable products with mixed prices.
 - Whether `wc_get_products(['sku' => $term])` does partial or exact matching
 - Whether that `sku` arg splits the term on commas
 - Variation-level SKUs are only findable by exact match, via

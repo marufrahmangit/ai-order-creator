@@ -157,6 +157,122 @@ function ai_rest_search_parent_product_ids($search) {
 }
 
 /**
+ * Whether a search term is a bare price figure.
+ *
+ * Digits with an optional single decimal part. Deliberately stricter than
+ * is_numeric(), which would also accept "-5", "1e3" and leading "+".
+ *
+ * @param string $search
+ * @return bool
+ */
+function ai_rest_is_price_term($search) {
+    return (bool) preg_match('/^\d+(\.\d+)?$/', $search);
+}
+
+/**
+ * Plausible stored representations of a price term.
+ *
+ * _price is written through wc_format_decimal(), so the same figure can sit in
+ * the database as "2500" or "2500.00" depending on how it was saved. Passing
+ * the set narrows the SQL; exact correctness is enforced in PHP afterwards.
+ *
+ * @param string $search
+ * @return string[]
+ */
+function ai_rest_price_meta_candidates($search) {
+    $decimals = wc_get_price_decimals();
+    $value    = (float) $search;
+
+    $candidates = [
+        (string) $search,
+        (string) wc_format_decimal($value, $decimals),
+        (string) wc_format_decimal($value, $decimals, true),
+        (string) wc_format_decimal($value),
+    ];
+
+    return array_values(array_unique(array_filter($candidates, 'strlen')));
+}
+
+/**
+ * Product ids whose effective current price equals a numeric term.
+ *
+ * Block A of the search. Matches on the product's real price, independent of
+ * its name or SKU. get_price() returns the effective price - the sale price
+ * when a product is on sale - which is the same figure the row's `price` field
+ * reports.
+ *
+ * UNVERIFIED: wc_get_products()'s 'price' argument maps onto a _price meta
+ * comparison, which is a STRING match, so "250" would not match a stored
+ * "250.00" on its own. Whether WooCommerce 11.0.1 supports the argument at all
+ * could not be confirmed here - see docs/PROJECT-STATE.md. Correctness
+ * therefore does not depend on it: every candidate is re-checked numerically in
+ * PHP below, which also means that if the argument is silently ignored (and the
+ * query degrades to "all products") the endpoint still returns only true price
+ * matches rather than the whole catalogue. The candidate scan is capped so that
+ * degraded case stays bounded.
+ *
+ * Isolated here so the lookup can be swapped or removed without touching the
+ * handler, the same way ai_rest_apply_search_arg() is in the orders route.
+ *
+ * @param string $search
+ * @return int[]
+ */
+function ai_rest_price_match_product_ids($search) {
+    if (!ai_rest_is_price_term($search)) {
+        return [];
+    }
+
+    $ids = wc_get_products([
+        'status'  => ai_rest_product_statuses(),
+        'type'    => ['simple', 'variable'],
+        'limit'   => -1,
+        'return'  => 'ids',
+        'orderby' => 'title',
+        'order'   => 'ASC',
+        'price'   => ai_rest_price_meta_candidates($search),
+    ]);
+
+    if (!is_array($ids)) {
+        return [];
+    }
+
+    $target  = (float) $search;
+    $matched = [];
+
+    foreach (array_slice($ids, 0, 500) as $id) {
+        $product = wc_get_product($id);
+        if (!$product instanceof WC_Product) {
+            continue;
+        }
+
+        // Numeric comparison, so "250" matches a stored "250.00".
+        if (abs((float) $product->get_price() - $target) < 0.00001) {
+            $matched[] = (int) $id;
+        }
+    }
+
+    return $matched;
+}
+
+/**
+ * Ordered candidate ids for a search term: price matches first, then name/SKU.
+ *
+ * Block A then Block B, deduplicated keeping the first occurrence, so price
+ * matches fill the limit before name/SKU matches get the remaining slots. A
+ * non-numeric term skips Block A entirely and the result is exactly the
+ * previous name/SKU ordering.
+ *
+ * @param string $search
+ * @return int[]
+ */
+function ai_rest_product_search_ids($search) {
+    return array_values(array_unique(array_merge(
+        ai_rest_price_match_product_ids($search),
+        ai_rest_search_parent_product_ids($search)
+    )));
+}
+
+/**
  * Row for a single variation, or null if it is not usable.
  *
  * @param WC_Product_Variation $variation
@@ -225,10 +341,10 @@ function ai_rest_exact_sku_row($search) {
 function ai_rest_get_products(WP_REST_Request $request) {
     $search = trim((string) $request->get_param('search'));
 
-    if (mb_strlen($search) < 2) {
+    if (mb_strlen($search) < 3) {
         return new WP_Error(
             'aioc_search_too_short',
-            __('The search term must be at least 2 characters.', 'ai-order-creator'),
+            __('The search term must be at least 3 characters.', 'ai-order-creator'),
             ['status' => 400]
         );
     }
@@ -250,7 +366,7 @@ function ai_rest_get_products(WP_REST_Request $request) {
         $rows[$exact['id']] = $exact;
     }
 
-    foreach (ai_rest_search_parent_product_ids($search) as $parent_id) {
+    foreach (ai_rest_product_search_ids($search) as $parent_id) {
         if (count($rows) >= $limit) {
             break;
         }

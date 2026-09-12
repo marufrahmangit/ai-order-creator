@@ -2,6 +2,14 @@
 
 All notable changes to AI Order Creator are documented in this file.
 
+## 5.7
+
+- `GET /aioc/v1/products` now searches by price, which is how staff actually look products up. A wholly numeric term first matches products whose effective current price equals it - sale price included, consistent with the `price` field in each row - and then falls through to the existing name/SKU substring search.
+- The two blocks are concatenated price-first, deduplicated keeping the first occurrence, and the limit applies to the combined list, so price matches fill it before name/SKU matches take the remaining slots.
+- Comparison is numeric, so `250` matches a stored `250.00`. A non-numeric term skips the price block entirely and text search behaves exactly as before.
+- The price lookup is isolated in `ai_rest_price_match_product_ids()` so it can be swapped or removed without touching the handler. It re-checks every candidate's price in PHP, so correctness does not depend on the unverified `wc_get_products()` `price` argument, and a silently-ignored argument cannot flood the response with non-matching products.
+- Minimum search length raised from 2 to 3 characters. The 400 `aioc_search_too_short` code is unchanged; the message now says 3.
+
 ## 5.6
 
 - Fixed a fatal error that made every request to `GET /aioc/v1/products` return a 500 before the handler ran. The `limit` parameter used `intval` as its `sanitize_callback`, but WordPress invokes sanitize and validate callbacks with three arguments (value, request, parameter name) and `intval()` accepts at most two, so PHP 8 raised an uncaught `ArgumentCountError` inside `WP_REST_Request::sanitize_params()`.
