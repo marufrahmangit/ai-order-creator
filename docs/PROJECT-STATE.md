@@ -2,9 +2,9 @@
 
 Working brief for resuming this project cold. Present state only — git log is the history.
 
-Plugin header: **Order Ops v5.7**, Updated 2026-09-12. Live runs v4.9. Staging runs
-**5.7**, matching the committed code, and all of step 3 is verified against it.
-Step 4 (write endpoints) is next.
+Plugin header: **Order Ops v5.8**, Updated 2026-09-15. Live runs v4.9. Staging runs
+**5.7**; all of step 3 is verified against it. 5.8 (`POST /parse`) is committed but NOT
+uploaded, so nothing in it is exercised. Step 4 is underway.
 
 ## Goal
 
@@ -77,7 +77,11 @@ parser becomes one feature inside it, not the whole tool.
 - District is a dropdown of WooCommerce BD states, never free text — shipping depends
   on the state code resolving.
 - `POST /parse` returns data and creates nothing. Always parse → review → save; never
-  blind-create.
+  blind-create. Implemented in 5.8; it also returns a `shipping_preview` from the pure
+  rate table so staff see the cost before saving.
+- Any endpoint taking pasted order text must sanitize with `sanitize_textarea_field()`,
+  never `sanitize_text_field()` — the latter strips newlines, and the address parser
+  splits on them. Use the `ai_rest_sanitize_textarea()` wrapper.
 - Out-of-stock products are returned to the client with `is_in_stock` false, not
   filtered out. The picker greys them and blocks adding. Write endpoints must re-check
   stock independently.
@@ -114,13 +118,15 @@ parser becomes one feature inside it, not the whole tool.
 | 3a | Read endpoints — orders list, single order | done, **verified on staging** | 5.2 |
 | 3b | Read endpoints — product search | done, **verified on staging** at 5.6 | 5.3–5.6 |
 | 3c | Price-first product search + 3-char minimum | done, **verified on staging** at 5.7 | 5.7 |
-| 4 | Write endpoints — parse, create, update, trash, restore | **next**, not started | — |
+| 4a | `POST /parse` — text in, structured data out, writes nothing | done, not yet on staging | 5.8 |
+| 4b | Write endpoints — create, update, trash, restore | **next**, not started | — |
 | 5 | PWA shell — subdomain, auth, order list | not started | — |
 | 6 | Create/edit form with product picker | not started | — |
 | 7 | Manifest, service worker, install prompt | not started | — |
 
 **Step 3 is fully complete, 3a through 3c, all verified against staging.** Step 4 is
-next.
+underway: 4a (`POST /parse`) is built and awaiting its first staging test; 4b (the
+endpoints that actually write) is next.
 
 Step 3b shipped over 5.3 product search, 5.4 product status fix (private catalogue) +
 response envelope + limit fallback, 5.5 variation status fix, 5.6 sanitize-callback
@@ -130,66 +136,40 @@ raised to 3.
 v5.1 (`089ac2f`) was an unrelated parser fix (partial-duplicate names in the address),
 not a build step.
 
-Routes currently registered, all `GET`, all read-only:
+Routes currently registered. None of them writes anything yet — `/parse` is POST
+because it takes a text body, not because it persists:
 
-- `GET /aioc/v1/ping` — `includes/rest/rest.php`
-- `GET /aioc/v1/orders` — `includes/rest/routes/orders.php`
-- `GET /aioc/v1/orders/{id}` — `includes/rest/routes/orders.php`
-- `GET /aioc/v1/products` — `includes/rest/routes/products.php`
+- `GET  /aioc/v1/ping` — `includes/rest/rest.php`
+- `GET  /aioc/v1/orders` — `includes/rest/routes/orders.php`
+- `GET  /aioc/v1/orders/{id}` — `includes/rest/routes/orders.php`
+- `GET  /aioc/v1/products` — `includes/rest/routes/products.php`
+- `POST /aioc/v1/parse` — `includes/rest/routes/parse.php`
 
 ## Verified
 
-Confirmed by real requests against staging.cartmixbd.com. **All of step 3 is verified:
-3a and 3b at 5.6, 3c at 5.7.**
+Confirmed by real requests against staging.cartmixbd.com. **All of step 3 is signed
+off** — 3a and 3b at 5.6, 3c at 5.7. Detail collapsed; see git log for the full results.
 
 - `GET /ping` — 200, returns user and version.
-- `GET /orders?per_page=3` — 4505 orders total, 1502 pages. Pagination arithmetic
-  correct.
-- `GET /orders/11323` — line item 3600.00 + shipping 80.00 = total 3680.00, matching
-  the admin order screen. Billing state `BD-13` resolved to label "Dhaka".
-- `GET /orders?search=01771160171` and `?search=8801771160171` — both return the same
-  single order, confirming `ai_normalize_bd_phone()` prefix folding.
-- `GET /orders?search=Fahmida` — matches mid-name ("Sumaiya Fahmida Neha"), confirming
-  `'s'` + `search_filter => 'customers'` does partial name matching on HPOS. This was
-  previously flagged unverified; it works.
-- `GET /orders?status=pending` and `?status=wc-pending` — identical results, 48 orders,
-  so `wc-` prefix normalization works.
-- `GET /orders?status=nonsense` — 400 `aioc_invalid_status`.
-- `GET /orders?per_page=100` — exactly 50 rows. Clamping works.
-- Trash exclusion — two trashed orders absent from unfiltered results.
-`/products`, at 5.6:
+- `GET /orders` — pagination arithmetic correct over 4505 orders / 1502 pages; money and
+  state labels match the admin screen (3600.00 + 80.00 shipping = 3680.00, `BD-13` →
+  "Dhaka"); phone search folds `8801…`/`01…` to the same order; name search matches
+  mid-name, so `'s'` + `search_filter => 'customers'` does partial matching on HPOS;
+  `status` accepts `pending` and `wc-pending` alike and 400s on nonsense; `per_page`
+  clamps to 50; trashed orders are excluded.
+- `GET /orders/{id}` — full detail correct, as above.
+- `GET /products` — returns private-status products, so publish + private works;
+  envelope is `{"products": [...]}`; `sku` matching is LIKE/partial and does NOT split
+  the term on commas; `limit=0` falls back to 20.
+- `GET /products` price-first (5.7) — `?search=2500` returns exactly the product priced
+  2500.00, confirming `wc_get_products(['price' => …])` genuinely narrows the query on
+  WooCommerce 11.0.1 rather than being ignored; `?search=250` returns the 250.00 product
+  first then 12 substring matches, confirming Block A ordering, Block B fallback and
+  dedup; `?search=25` 400s with the 3-character message; text search unchanged from 5.6.
 
-- `GET /products?search=three` — 20 private-status products returned, so the
-  publish + private status fix works.
-- Response envelope is `{"products": [...]}` as specified.
-- `GET /products?search=cartmixbd-batik-` — 15 rows for a partial SKU, confirming
-  `wc_get_products(['sku' => $term])` does LIKE (partial) matching, not exact.
-  Previously unverified.
-- `GET /products?search=three,piece` — identical results to `?search=three`, confirming
-  the `sku` arg does NOT split the term on commas. Previously unverified.
-- `GET /products?limit=0&search=three` — 20 rows, so the limit fallback works.
-- `GET /products?search=cartmixbd-batik-gauze-175` — exactly one row.
-
-Earlier `/products` observations, now superseded and kept only as the trail to the two
-fixes: it returned an empty array under publish-only status (which identified the
-private-product problem 5.4 fixed), and a 500 under 5.4/5.5 from an uncaught
-`ArgumentCountError` in `WP_REST_Request::sanitize_params()` — the `intval` sanitize
-callback, fixed in 5.6.
-
-Price-first search (step 3c), at 5.7:
-
-- `GET /products?search=2500` — exactly one row, the product priced 2500.00. Confirms
-  `wc_get_products(['price' => $term])` DOES narrow the query on WooCommerce 11.0.1 —
-  the argument is not silently ignored. The PHP re-check in
-  `ai_rest_price_match_product_ids()` is defence in depth, not the primary mechanism.
-- `GET /products?search=250` — 13 rows: `cartmixbd-batik-gauze-250` (price 250.00)
-  first, then 12 substring matches (1250, 2250, 2500, 3250, 4250, 5250, 6250, 7250,
-  8250, 9250). Confirms Block A ordering, Block B fallback, and dedup — 2500 appears
-  once, in Block B.
-- `GET /products?search=25` — 400 `aioc_search_too_short` with the 3-character message.
-- `GET /products?search=batik` — 15 rows, identical to 5.6, so text search is unchanged.
-
-Next: step 4, the write endpoints.
+Not yet exercised: everything in 5.8 (`POST /parse`). Next: upload 5.8, confirm `/ping`
+reports 5.8, then exercise `/parse` with real pasted text — including a multi-line
+address, to confirm newlines survive the request.
 
 ## Unverified / open
 

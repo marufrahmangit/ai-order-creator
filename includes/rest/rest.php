@@ -47,6 +47,17 @@ function ai_rest_sanitize_text($value) {
 }
 
 /**
+ * Multi-line text. Unlike sanitize_text_field(), this preserves newlines,
+ * which the order parser depends on to split address lines.
+ *
+ * @param mixed $value
+ * @return string
+ */
+function ai_rest_sanitize_textarea($value) {
+    return sanitize_textarea_field($value);
+}
+
+/**
  * Accepts any value. Used to skip WP's schema validation where the handler
  * clamps instead of rejecting.
  *

@@ -2,6 +2,16 @@
 
 All notable changes to AI Order Creator are documented in this file.
 
+## 5.8
+
+- Added `POST /aioc/v1/parse`, the first step-4 endpoint - though it writes nothing. It takes raw pasted text, runs the existing `ai_get_parsed_order_data()` unchanged, and returns the extracted name, phone, address, state (raw text plus resolved WooCommerce code and label) and customer note.
+- The response includes a `shipping_preview` computed from the pure `ai_get_shipping_rate()` rate table, so staff see the shipping cost before saving. No order is created, updated or touched, and `ai_apply_shipping()` is deliberately not called.
+- An unmatched state is not an error: `state_code` comes back empty with the Outside Dhaka default rate, and the client's district dropdown resolves it.
+- Parse failure returns 422 with the parser's own message. The parser only fails when both name and phone are missing, so partial extraction succeeds and reports `warnings`.
+- `normalized_text`, `raw_ai_response` and the always-empty `price` / `price_items` keys are omitted, keeping the mobile payload small.
+- `text` is sanitized with `sanitize_textarea_field()` rather than `sanitize_text_field()`, which strips the newlines the address parser splits on.
+- Corrected a stale docblock in `includes/rest/routes/products.php` that still described the `wc_get_products()` `price` argument as unverified. Staging testing at 5.7 confirmed it narrows the query; the PHP re-check is defence in depth, not the primary mechanism.
+
 ## 5.7
 
 - `GET /aioc/v1/products` now searches by price, which is how staff actually look products up. A wholly numeric term first matches products whose effective current price equals it - sale price included, consistent with the `price` field in each row - and then falls through to the existing name/SKU substring search.

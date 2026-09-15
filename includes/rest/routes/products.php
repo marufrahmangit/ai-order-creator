@@ -201,15 +201,16 @@ function ai_rest_price_meta_candidates($search) {
  * when a product is on sale - which is the same figure the row's `price` field
  * reports.
  *
- * UNVERIFIED: wc_get_products()'s 'price' argument maps onto a _price meta
- * comparison, which is a STRING match, so "250" would not match a stored
- * "250.00" on its own. Whether WooCommerce 11.0.1 supports the argument at all
- * could not be confirmed here - see docs/PROJECT-STATE.md. Correctness
- * therefore does not depend on it: every candidate is re-checked numerically in
- * PHP below, which also means that if the argument is silently ignored (and the
- * query degrades to "all products") the endpoint still returns only true price
- * matches rather than the whole catalogue. The candidate scan is capped so that
- * degraded case stays bounded.
+ * wc_get_products()'s 'price' argument maps onto a _price meta comparison.
+ * Staging testing at v5.7 on WooCommerce 11.0.1 confirmed it does genuinely
+ * narrow the query - it is the primary mechanism, not a no-op.
+ *
+ * The PHP re-check below is therefore defence in depth rather than what makes
+ * this work. It still earns its place: the meta comparison is a STRING match,
+ * so it guarantees "250" matches a stored "250.00", and if the argument's
+ * behaviour ever changes and the query degrades to "all products", the endpoint
+ * returns only true price matches instead of the whole catalogue. The candidate
+ * scan is capped so that degraded case stays bounded.
  *
  * Isolated here so the lookup can be swapped or removed without touching the
  * handler, the same way ai_rest_apply_search_arg() is in the orders route.

@@ -2,10 +2,11 @@
 /*
 Plugin Name: Order Ops
 Description: Create WooCommerce orders from messy text using Groq AI.
-Version: 5.7
-Updated: 2026-09-12
+Version: 5.8
+Updated: 2026-09-15
 Author: Maruf Rahman
-Changelog: 5.7 - GET /products now searches by price, which is how staff actually look products up. A wholly numeric term first matches products whose effective current price equals it (sale price included, matching the price field in each row), then falls through to the existing name/SKU substring search; the two blocks are concatenated, deduplicated keeping the first occurrence, and the limit applies to the combined list, so price matches fill it first. Comparison is numeric, so "250" matches a stored "250.00". A non-numeric term skips the price block entirely and text search is unchanged. The price lookup is isolated in ai_rest_price_match_product_ids() and re-checks every candidate in PHP, so correctness does not depend on the unverified wc_get_products() price argument. Minimum search length raised from 2 to 3 characters.
+Changelog: 5.8 - Added POST /parse to the aioc/v1 namespace, the first step-4 write-path endpoint - though it writes nothing. It takes raw pasted text, runs the existing ai_get_parsed_order_data() unchanged, and returns the extracted name, phone, address, state (raw text plus resolved WC code and label) and customer note, together with a shipping preview computed from the pure ai_get_shipping_rate() rate table so staff can see the cost before saving. No order is created, updated or touched. An unmatched state is not an error - it returns an empty state_code and the Outside Dhaka default rate, and the client's district dropdown resolves it. Parse failure returns 422 with the parser's own message; the parser only fails when both name and phone are missing, so partial extraction succeeds with warnings. normalized_text, raw_ai_response and the always-empty price keys are omitted to keep the mobile payload small. Also corrected a stale docblock in products.php that still called the wc_get_products() price argument unverified; staging testing at 5.7 confirmed it narrows the query.
+5.7 - GET /products now searches by price, which is how staff actually look products up. A wholly numeric term first matches products whose effective current price equals it (sale price included, matching the price field in each row), then falls through to the existing name/SKU substring search; the two blocks are concatenated, deduplicated keeping the first occurrence, and the limit applies to the combined list, so price matches fill it first. Comparison is numeric, so "250" matches a stored "250.00". A non-numeric term skips the price block entirely and text search is unchanged. The price lookup is isolated in ai_rest_price_match_product_ids() and re-checks every candidate in PHP, so correctness does not depend on the unverified wc_get_products() price argument. Minimum search length raised from 2 to 3 characters.
 5.6 - Fixed a fatal error that made every request to GET /products return a 500 before the handler ran. The 'limit' parameter used 'intval' as its sanitize_callback, but WordPress invokes sanitize and validate callbacks with three arguments (value, request, parameter name), and intval() accepts at most two - on PHP 8 that raises an uncaught ArgumentCountError inside WP_REST_Request::sanitize_params(). All argument callbacks in the REST layer now go through single-argument ai_rest_* wrappers defined in includes/rest/rest.php, so no bare built-in is registered as a callback anywhere. absint, sanitize_text_field and __return_true tolerate extra arguments and were not themselves broken, but are wrapped too so the pattern is uniform and greppable. Parameter clamping behaviour is unchanged.
 5.5 - Fixed disabled variations being addable to orders via GET /products. A variation's post status encodes its Enabled checkbox, so 'private' there means disabled rather than inheriting the parent's visibility; the 5.4 status widening was applied too broadly and let disabled variations through. Variation checks are now publish-only via a dedicated ai_rest_variation_status_allowed(), while the wc_get_products() status argument, the parent status check and the exact-SKU path keep accepting both publish and private - that is what makes this store's private catalogue reachable.
 5.4 - Fixed GET /products returning nothing on this store: the endpoint filtered to published products only, but the catalogue is kept at post status 'private' because the storefront is unused and orders are taken internally. Both 'publish' and 'private' are now accepted across every query path - the name search, the SKU search, and the variation expansion - while 'draft', 'pending' and 'trash' stay excluded. Catalog visibility is deliberately not consulted, so a product hidden from the storefront is still addable to an order. Also wrapped the response as {"products": [...]} to match the order endpoints, and made limit=0 and non-numeric limits fall back to the default of 20 instead of clamping to 1.
@@ -28,7 +29,7 @@ Changelog: 5.7 - GET /products now searches by price, which is how staff actuall
 
 if (!defined('ABSPATH')) exit;
 
-define('AIOC_VERSION', '5.7');
+define('AIOC_VERSION', '5.8');
 define('AIOC_PATH', plugin_dir_path(__FILE__));
 define('AIOC_URL', plugin_dir_url(__FILE__));
 
@@ -46,6 +47,7 @@ require_once AIOC_PATH . 'includes/ajax.php';
 require_once AIOC_PATH . 'includes/rest/rest.php';
 require_once AIOC_PATH . 'includes/rest/routes/orders.php';
 require_once AIOC_PATH . 'includes/rest/routes/products.php';
+require_once AIOC_PATH . 'includes/rest/routes/parse.php';
 require_once AIOC_PATH . 'admin/menu.php';
 require_once AIOC_PATH . 'admin/views/settings-tab.php';
 require_once AIOC_PATH . 'admin/views/creator-tab.php';
