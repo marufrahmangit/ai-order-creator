@@ -2,10 +2,9 @@
 
 Working brief for resuming this project cold. Present state only — git log is the history.
 
-Plugin header: **Order Ops v5.7**, Updated 2026-09-12. Live runs v4.9. Staging is
-running at least **5.4** — its debug.log carried the `intval` fatal, which only exists
-in 5.4+ — but the exact version is unconfirmed; re-check with `/ping`. 5.6 and 5.7 are
-committed and not yet uploaded.
+Plugin header: **Order Ops v5.7**, Updated 2026-09-12. Live runs v4.9. Staging runs
+**5.6**, against which steps 3a and 3b are verified. 5.7 (price-first search, 3-char
+minimum) is committed but NOT uploaded, so nothing in it is exercised.
 
 ## Goal
 
@@ -22,6 +21,13 @@ parser becomes one feature inside it, not the whole tool.
   internally. Product queries must include publish AND private.
 - Variation post status encodes the Enabled checkbox — `private` means disabled.
   Variations do NOT inherit parent status. Variation queries are publish-only.
+- This catalogue contains **no variable products** — every product is simple, one per
+  price point. So every variation code path in `products.php` (the expansion loop,
+  `ai_rest_variation_row()`, `ai_rest_variation_display_name()`,
+  `ai_rest_variation_status_allowed()`) is **untestable in this catalogue**, not merely
+  unverified. Don't spend time trying to exercise it here; it would need a variable
+  product created specifically to test. The rules above still govern that code if
+  variable products are ever added.
 - Auth: WP core Application Passwords (Basic auth), user `t45km45ter`
 - The Defender plugin truncates the application-password display in wp-admin,
   producing unusable credentials. Currently deactivated on staging. Must be handled
@@ -97,17 +103,18 @@ parser becomes one feature inside it, not the whole tool.
 | 1 | Logic/presentation split, shipping consolidation | done | 4.9 (`f0972a8`) |
 | 2 | Restructure, Order Ops rename, REST foundation + ping | done | 5.0 (`9ab4bd3`) |
 | 3a | Read endpoints — orders list, single order | done, **verified on staging** | 5.2 |
-| 3b | Read endpoints — product search | done, never yet succeeded on staging; re-test needed | 5.3–5.7 |
+| 3b | Read endpoints — product search | done, **verified on staging** at 5.6 | 5.3–5.6 |
 | 4 | Write endpoints — parse, create, update, trash, restore | not started | — |
 | 5 | PWA shell — subdomain, auth, order list | not started | — |
 | 6 | Create/edit form with product picker | not started | — |
 | 7 | Manifest, service worker, install prompt | not started | — |
 
-Step 3b detail: 5.3 product search, 5.4 product status fix (private catalogue) +
+**Step 3 is complete.** Both read endpoints are verified against staging at 5.6.
+
+Step 3b shipped over 5.3 product search, 5.4 product status fix (private catalogue) +
 response envelope + limit fallback, 5.5 variation status fix, 5.6 sanitize-callback
-arity fatal, 5.7 price-first search + 3-char minimum. `/products` has never returned a
-successful response on staging — it 500d under 5.4/5.5, and 5.6/5.7 are not uploaded.
-Nothing in 5.4–5.7 is exercised.
+arity fatal. 5.7 (price-first search + 3-char minimum) is a later addition on top and is
+**not** covered by the 5.6 verification — it has not been uploaded.
 
 v5.1 (`089ac2f`) was an unrelated parser fix (partial-duplicate names in the address),
 not a build step.
@@ -121,8 +128,8 @@ Routes currently registered, all `GET`, all read-only:
 
 ## Verified
 
-Confirmed by real requests against staging.cartmixbd.com. **Step 3a (order read
-endpoints) is fully verified.**
+Confirmed by real requests against staging.cartmixbd.com. **Steps 3a (order read
+endpoints) and 3b (product search) are both fully verified, at 5.6.**
 
 - `GET /ping` — 200, returns user and version.
 - `GET /orders?per_page=3` — 4505 orders total, 1502 pages. Pagination arithmetic
@@ -139,14 +146,27 @@ endpoints) is fully verified.**
 - `GET /orders?status=nonsense` — 400 `aioc_invalid_status`.
 - `GET /orders?per_page=100` — exactly 50 rows. Clamping works.
 - Trash exclusion — two trashed orders absent from unfiltered results.
-- `GET /products` with publish-only status returned an empty array. This is what
-  identified the private-product-status problem that 5.4 fixes.
-- `GET /products` returned 500 under 5.4/5.5, from an uncaught `ArgumentCountError` in
-  `WP_REST_Request::sanitize_params()` — the `intval` sanitize callback. Confirmed in
-  staging's debug.log; fixed in 5.6.
+`/products`, at 5.6:
 
-Next: upload 5.6, confirm `/ping` reports 5.6, then exercise `/products` (step 3b) and
-record the results here. It has never returned a successful response.
+- `GET /products?search=three` — 20 private-status products returned, so the
+  publish + private status fix works.
+- Response envelope is `{"products": [...]}` as specified.
+- `GET /products?search=cartmixbd-batik-` — 15 rows for a partial SKU, confirming
+  `wc_get_products(['sku' => $term])` does LIKE (partial) matching, not exact.
+  Previously unverified.
+- `GET /products?search=three,piece` — identical results to `?search=three`, confirming
+  the `sku` arg does NOT split the term on commas. Previously unverified.
+- `GET /products?limit=0&search=three` — 20 rows, so the limit fallback works.
+- `GET /products?search=cartmixbd-batik-gauze-175` — exactly one row.
+
+Earlier `/products` observations, now superseded and kept only as the trail to the two
+fixes: it returned an empty array under publish-only status (which identified the
+private-product problem 5.4 fixed), and a 500 under 5.4/5.5 from an uncaught
+`ArgumentCountError` in `WP_REST_Request::sanitize_params()` — the `intval` sanitize
+callback, fixed in 5.6.
+
+Next: upload 5.7, confirm `/ping` reports 5.7, then verify price-first search
+(`?search=2500`) and the 3-character minimum.
 
 ## Unverified / open
 
@@ -160,15 +180,20 @@ record the results here. It has never returned a successful response.
   `'type' => 'NUMERIC'` (needs confirming that `wc_get_products()` forwards `meta_query`),
   or read `wc_product_meta_lookup.min_price`, which is numeric but means raw SQL and is
   excluded by convention. Settle this before step 6.
-- Price search finds variable parents by their `_price`, which WooCommerce syncs to the
-  cheapest variation. A variation priced at the term under a parent with a cheaper
-  variation is therefore not found. Unquantified — depends on whether this catalogue
-  uses variable products with mixed prices.
-- Whether `wc_get_products(['sku' => $term])` does partial or exact matching
-- Whether that `sku` arg splits the term on commas
-- Variation-level SKUs are only findable by exact match, via
-  `wc_get_product_id_by_sku()` in `ai_rest_exact_sku_row()`. The parent-first search
-  cannot reach a partial variation SKU.
+- **Untestable in this catalogue.** Price search finds variable parents by their
+  `_price`, which WooCommerce syncs to the cheapest variation, so a variation priced at
+  the term under a parent with a cheaper variation would not be found. Moot here — there
+  are no variable products. Relevant only if they are ever added.
+- **Untestable in this catalogue.** Variation-level SKUs are only findable by exact
+  match, via `wc_get_product_id_by_sku()` in `ai_rest_exact_sku_row()`; the parent-first
+  search cannot reach a partial variation SKU. No variable products exist here, so this
+  cannot be exercised. Parent/simple SKU partial matching IS verified — see Verified.
+- **No price-relevance ranking in product search.** Results come back sorted by name
+  (`orderby => title`), so a broad term like "three" returns dozens of near-identical
+  rows — this catalogue has one product per price point — and the intended item is often
+  outside the first 20. v5.7 addresses this for wholly numeric terms by putting exact
+  price matches first, but that is itself unverified and does nothing for text terms.
+  Ranking for text searches is still an open design question.
 - CORS has never been exercised — curl sends no Origin header. First real test is the
   PWA.
 - WordPress core's `rest_send_cors_headers()` reflects any Origin API-wide.
@@ -176,7 +201,7 @@ record the results here. It has never returned a successful response.
   configured origin is empty or mismatched. Untested.
 - Claude Code's environment has no php binary and no WooCommerce source, so nothing is
   linted or run there. Local checks are structural or simulated only; behaviour must be
-  confirmed by curl against staging, as was done for step 3a.
+  confirmed by curl against staging, as was done for steps 3a and 3b.
 
 ## Housekeeping
 
