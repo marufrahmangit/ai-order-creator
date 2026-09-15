@@ -2,6 +2,13 @@
 
 All notable changes to AI Order Creator are documented in this file.
 
+## 6.0
+
+- Added `GET /aioc/v1/meta` so the app never hardcodes a list WooCommerce owns. It returns `states` (the full BD list, in WooCommerce's own order), `statuses` (every registered order status, `wc-` prefix stripped so the slugs match what the other endpoints accept and return), `currency`, `price_decimals` and `plugin_version`.
+- Every list is read from WooCommerce at request time, so a state relabelled upstream or an order status registered by another plugin appears automatically, with no app rebuild. `currency` and `price_decimals` let the client format money to the store's settings instead of assuming BDT and 2dp.
+- The response is cacheable client-side for the length of a session; nothing in it changes during normal operation.
+- Moved `ai_rest_strip_status_prefix()` from `includes/rest/routes/orders-write.php` into `includes/rest/rest.php`, since the meta and write routes now both use it. No behaviour change.
+
 ## 5.9
 
 - Added the order write endpoints, completing step 4: `POST /orders` (create, 201), `POST /orders/{id}` (partial update, 200), `POST /orders/{id}/trash` and `POST /orders/{id}/restore`.

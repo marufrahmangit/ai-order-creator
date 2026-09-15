@@ -2,9 +2,9 @@
 
 Working brief for resuming this project cold. Present state only — git log is the history.
 
-Plugin header: **Order Ops v5.9**, Updated 2026-09-15. Live runs v4.9. Staging runs
-**5.9**, matching the committed code. The whole API layer — steps 3 and 4 — is verified
-against it. **Step 5 (PWA shell) is next**, and is the first work outside this plugin.
+Plugin header: **Order Ops v6.0**, Updated 2026-09-15. Live runs v4.9. Staging runs
+**5.9**; steps 3 and 4 are verified against it. 6.0 (`GET /meta`) is committed but NOT
+uploaded. **Step 5 (PWA shell) is next**, the first work outside this plugin.
 
 ## Goal
 
@@ -74,6 +74,11 @@ parser becomes one feature inside it, not the whole tool.
   optional, never required.
 - District is a dropdown of WooCommerce BD states, never free text — shipping depends
   on the state code resolving.
+- **The app populates the district and status dropdowns from `GET /meta`, and hardcodes
+  neither list.** Both are read from WooCommerce per request, so a state relabelled
+  upstream or a status registered by another plugin propagates without an app rebuild.
+  Money formatting likewise uses the endpoint's `currency` and `price_decimals` rather
+  than assuming BDT and 2dp. Cache the response for the session, not per screen.
 - **Field-level validation mirrors WooCommerce, not stricter.** WooCommerce permits
   saving an order with no phone, no address, no line items and no state — details can be
   filled in later. The app must permit the same. Do NOT add required-field validation to
@@ -106,9 +111,9 @@ parser becomes one feature inside it, not the whole tool.
   costing 2500. `/products` matches a numeric term against the real price first, then
   name/SKU. Do not rely on this catalogue's names happening to embed the price; that is
   incidental, not a property of the data.
-- The step 6 product picker must enforce the same 3-character minimum client-side
-  (don't fire a request below it), debounce input at roughly 250–300ms, and cancel
-  in-flight requests on each new keystroke so responses can't arrive out of order.
+- The step 6 product picker must enforce the 3-character minimum client-side, debounce
+  input at ~250–300ms, and cancel in-flight requests per keystroke so responses cannot
+  arrive out of order.
 - Search minimum is 3 characters, so prices below 100 are not searchable by price.
   Accepted trade-off; revisit if sub-100 items appear.
 - Price search uses `wc_get_products(['price' => …])`, confirmed on 11.0.1 to narrow the
@@ -134,12 +139,13 @@ parser becomes one feature inside it, not the whole tool.
 | 3c | Price-first product search + 3-char minimum | done, **verified on staging** at 5.7 | 5.7 |
 | 4a | `POST /parse` — text in, structured data out, writes nothing | done, **verified on staging** at 5.8 | 5.8 |
 | 4b | Write endpoints — create, update, trash, restore | done, **verified on staging** at 5.9 | 5.9 |
+| 4c | `GET /meta` — states, statuses, currency for the app | done, not yet on staging | 6.0 |
 | 5 | PWA shell — subdomain, auth, order list | not started | — |
 | 6 | Create/edit form with product picker | not started | — |
 | 7 | Manifest, service worker, install prompt | not started | — |
 
-**Steps 3 and 4 are complete and verified against staging** — 3a–3c at 5.6/5.7, 4a at
-5.8, 4b at 5.9. The REST API is done; step 5 begins the PWA itself.
+**Steps 3 and 4 are complete** — 3a–3c at 5.6/5.7, 4a at 5.8, 4b at 5.9, all verified;
+4c (`GET /meta`, 6.0) awaits its first staging test. Step 5 begins the PWA itself.
 
 Step 3b shipped over 5.3 product search, 5.4 product status fix (private catalogue) +
 response envelope + limit fallback, 5.5 variation status fix, 5.6 sanitize-callback
@@ -157,6 +163,7 @@ because it defaults to `$override = false`:
 - `GET  /aioc/v1/orders` — `includes/rest/routes/orders.php`
 - `GET  /aioc/v1/orders/{id}` — `includes/rest/routes/orders.php`
 - `GET  /aioc/v1/products` — `includes/rest/routes/products.php`
+- `GET  /aioc/v1/meta` — `includes/rest/routes/meta.php` (states, statuses, currency)
 - `POST /aioc/v1/parse` — `includes/rest/routes/parse.php` (writes nothing; POST only
   because it takes a text body)
 - `POST /aioc/v1/orders` — `includes/rest/routes/orders-write.php` (create, 201)
@@ -189,12 +196,10 @@ Writes (step 4):
   120.00 / 150.00 previews; Bangla input extracts Bengali name and address and
   normalizes Bangla digits (০১৮১২৩৪৫৬৭৮ → 01812345678), resolving ঢাকা to `BD-13`.
 - `POST /orders` — `{}` yields a 201 empty pending order at total 0.00, confirming
-  validation mirrors WooCommerce. A full payload prices correctly (product 9167 at
-  175.00 × 2 = 350.00, plus 80.00 Dhaka shipping, 430.00 total). A per-line `total`
-  override applies to both subtotal and total (999.00 → 1079.00 order total).
-  `state=BD-99` is a 400 `aioc_invalid_state`; `product_id=999999` still returns 201
-  with the line skipped, a "Product 999999 not found; line skipped." warning, and
-  shipping applied.
+  validation mirrors WooCommerce. Full payload prices correctly (9167 at 175.00 × 2 =
+  350.00 + 80.00 Dhaka = 430.00); a per-line `total` override applies to subtotal and
+  total (999.00 → 1079.00). `state=BD-99` 400s `aioc_invalid_state`; `product_id=999999`
+  still returns 201 with the line skipped, a warning naming it, and shipping applied.
 - **Line items with NO state total 175.00, not 0.00, with no shipping line.** This is
   the `ai_rest_finalize_order()` fix earning its place: `ai_apply_shipping()`
   early-returns on an empty state, so `calculate_totals()` must be called directly in
@@ -207,18 +212,17 @@ Writes (step 4):
   returns the order at `processing`, its genuine pre-trash status, not the `pending`
   fallback.
 
-Next: step 5, the PWA shell.
+Not yet exercised: `GET /meta` (6.0). Next: upload 6.0, confirm `/ping` reports 6.0 and
+`/meta` returns the state and status lists, then step 5 — the PWA shell.
 
 ## Unverified / open
 
-- **Untestable in this catalogue.** Price search finds variable parents by their
-  `_price`, which WooCommerce syncs to the cheapest variation, so a variation priced at
-  the term under a parent with a cheaper variation would not be found. Moot here — there
-  are no variable products. Relevant only if they are ever added.
-- **Untestable in this catalogue.** Variation-level SKUs are only findable by exact
-  match, via `wc_get_product_id_by_sku()` in `ai_rest_exact_sku_row()`; the parent-first
-  search cannot reach a partial variation SKU. No variable products exist here, so this
-  cannot be exercised. Parent/simple SKU partial matching IS verified — see Verified.
+- **Untestable in this catalogue** (no variable products), relevant only if any are
+  added: price search matches variable parents on `_price`, which WooCommerce syncs to
+  the cheapest variation, so a variation priced at the term under a cheaper parent is
+  missed; and variation-level SKUs are findable only by exact match via
+  `wc_get_product_id_by_sku()`, the parent-first search never reaching a partial one.
+  Parent/simple SKU partial matching IS verified.
 - **No relevance ranking for TEXT product searches.** Results come back sorted by name
   (`orderby => title`), so a broad term like "three" returns dozens of near-identical
   rows — this catalogue has one product per price point — and the intended item is often

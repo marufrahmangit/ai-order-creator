@@ -68,6 +68,18 @@ function ai_rest_validate_any() {
 }
 
 /**
+ * Strip an optional 'wc-' prefix from a status slug.
+ *
+ * @param string $status
+ * @return string
+ */
+function ai_rest_strip_status_prefix($status) {
+    $status = trim((string) $status);
+
+    return strpos($status, 'wc-') === 0 ? substr($status, 3) : $status;
+}
+
+/**
  * Shared permission callback for every aioc/v1 route. No route is public.
  *
  * Authentication itself is WP core Application Passwords (Basic auth) - by the

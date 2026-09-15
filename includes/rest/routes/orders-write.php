@@ -20,18 +20,6 @@ if (!defined('ABSPATH')) exit;
  */
 
 /**
- * Strip an optional 'wc-' prefix from a status slug.
- *
- * @param string $status
- * @return string
- */
-function ai_rest_strip_status_prefix($status) {
-    $status = trim((string) $status);
-
-    return strpos($status, 'wc-') === 0 ? substr($status, 3) : $status;
-}
-
-/**
  * Resolve a submitted status to a bare slug WooCommerce knows.
  *
  * Accepts slugs with or without the 'wc-' prefix, same as the orders list
