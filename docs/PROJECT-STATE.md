@@ -3,9 +3,8 @@
 Working brief for resuming this project cold. Present state only — git log is the history.
 
 Plugin header: **Order Ops v5.9**, Updated 2026-09-15. Live runs v4.9. Staging runs
-**5.8**; step 3 and step 4a are verified against it. 5.9 (the order write endpoints) is
-committed but NOT uploaded, so nothing in it is exercised. Step 5 (PWA shell) is next
-once 5.9 is verified.
+**5.9**, matching the committed code. The whole API layer — steps 3 and 4 — is verified
+against it. **Step 5 (PWA shell) is next**, and is the first work outside this plugin.
 
 ## Goal
 
@@ -23,12 +22,9 @@ parser becomes one feature inside it, not the whole tool.
 - Variation post status encodes the Enabled checkbox — `private` means disabled.
   Variations do NOT inherit parent status. Variation queries are publish-only.
 - This catalogue contains **no variable products** — every product is simple, one per
-  price point. So every variation code path in `products.php` (the expansion loop,
-  `ai_rest_variation_row()`, `ai_rest_variation_display_name()`,
-  `ai_rest_variation_status_allowed()`) is **untestable in this catalogue**, not merely
-  unverified. Don't spend time trying to exercise it here; it would need a variable
-  product created specifically to test. The rules above still govern that code if
-  variable products are ever added.
+  price point. Every variation code path in `products.php` is therefore **untestable in
+  this catalogue**, not merely unverified; don't try to exercise it without first
+  creating a variable product. The rules above still govern that code if any appear.
 - Auth: WP core Application Passwords (Basic auth), user `t45km45ter`
 - The Defender plugin truncates the application-password display in wp-admin,
   producing unusable credentials. Currently deactivated on staging. Must be handled
@@ -54,13 +50,11 @@ parser becomes one feature inside it, not the whole tool.
   deliberately left alone.
 - No raw SQL. Use `wc_get_orders()` / `wc_get_products()`.
 - Pagination params clamp rather than 400.
-- Never register a bare PHP built-in as a `sanitize_callback` or `validate_callback`.
-  WordPress invokes them with three arguments (value, request, param name), so any
-  built-in with a fixed arity of 2 or fewer is a latent PHP 8 fatal — `intval` cost a
-  500 on every `/products` request. Use the single-argument `ai_rest_sanitize_*` /
-  `ai_rest_validate_*` wrappers in `includes/rest/rest.php`. Every callback in the REST
-  layer is an `ai_*` function, so `grep "_callback'.*=> '" | grep -v "ai_"` should stay
-  empty.
+- Never register a bare PHP built-in as a `sanitize_callback` / `validate_callback`:
+  WordPress passes three arguments, so any built-in of arity ≤2 is a PHP 8 fatal
+  (`intval` 500'd every `/products` request). Use the `ai_rest_sanitize_*` /
+  `ai_rest_validate_*` wrappers in `rest.php`; `grep "_callback'.*=> '" | grep -v ai_`
+  must stay empty.
 - Logic files produce no output. Presentation lives in `admin/views/`.
 
 ## Product decisions
@@ -72,7 +66,10 @@ parser becomes one feature inside it, not the whole tool.
 - All WooCommerce statuses are settable from the app, read from
   `wc_get_order_statuses()` rather than hardcoded.
 - "Delete" means trash. Endpoints are `POST /orders/{id}/trash` and
-  `POST /orders/{id}/restore`. No force-delete is reachable from the app.
+  `POST /orders/{id}/restore`. No force-delete is reachable from the app. Confirmed on
+  11.0.1/HPOS: `WC_Order::delete(false)` is the correct trash call (not the legacy
+  `wp_trash_post()`), `wc_get_order()` does return trashed orders, and restore reading
+  `_wp_trash_meta_status` round-trips the pre-trash status.
 - One order form, two ways to fill it: paste-and-parse, or type directly. Parsing is
   optional, never required.
 - District is a dropdown of WooCommerce BD states, never free text — shipping depends
@@ -114,15 +111,12 @@ parser becomes one feature inside it, not the whole tool.
   in-flight requests on each new keystroke so responses can't arrive out of order.
 - Search minimum is 3 characters, so prices below 100 are not searchable by price.
   Accepted trade-off; revisit if sub-100 items appear.
-- Price search uses `wc_get_products(['price' => …])`, confirmed on WooCommerce 11.0.1
-  to genuinely narrow the query. `ai_rest_price_match_product_ids()` also re-checks each
-  candidate numerically in PHP; that is now defence in depth (it guarantees "250" matches
-  a stored "250.00" and bounds the damage if the argument's behaviour ever changes), not
-  the primary mechanism. Two fallbacks are parked and **not needed unless that behaviour
-  changes**: a `meta_query` with `'type' => 'NUMERIC'` (would need confirming that
-  `wc_get_products()` forwards `meta_query`), or reading
-  `wc_product_meta_lookup.min_price`, which is numeric but means raw SQL and is excluded
-  by convention.
+- Price search uses `wc_get_products(['price' => …])`, confirmed on 11.0.1 to narrow the
+  query. The PHP re-check in `ai_rest_price_match_product_ids()` is defence in depth —
+  it guarantees "250" matches "250.00" and bounds the damage if that ever changes — not
+  the primary mechanism. Parked fallbacks, **not needed unless the behaviour changes**:
+  a `meta_query` with `'type' => 'NUMERIC'` (needs confirming `wc_get_products()`
+  forwards it), or `wc_product_meta_lookup.min_price`, which means raw SQL.
 - Product status rules are split on purpose (`includes/rest/routes/products.php`):
   `ai_rest_product_statuses()` returns publish + private and is used for the
   `wc_get_products()` status arg, the parent check and the exact-SKU path;
@@ -139,14 +133,13 @@ parser becomes one feature inside it, not the whole tool.
 | 3b | Read endpoints — product search | done, **verified on staging** at 5.6 | 5.3–5.6 |
 | 3c | Price-first product search + 3-char minimum | done, **verified on staging** at 5.7 | 5.7 |
 | 4a | `POST /parse` — text in, structured data out, writes nothing | done, **verified on staging** at 5.8 | 5.8 |
-| 4b | Write endpoints — create, update, trash, restore | done, not yet on staging | 5.9 |
+| 4b | Write endpoints — create, update, trash, restore | done, **verified on staging** at 5.9 | 5.9 |
 | 5 | PWA shell — subdomain, auth, order list | not started | — |
 | 6 | Create/edit form with product picker | not started | — |
 | 7 | Manifest, service worker, install prompt | not started | — |
 
-**Step 3 is fully complete, 3a through 3c, all verified against staging.** Step 4 is
-built end to end: 4a (`POST /parse`) is verified at 5.8; 4b (create, update, trash,
-restore) shipped in 5.9 and awaits its first staging test. Step 5 follows.
+**Steps 3 and 4 are complete and verified against staging** — 3a–3c at 5.6/5.7, 4a at
+5.8, 4b at 5.9. The REST API is done; step 5 begins the PWA itself.
 
 Step 3b shipped over 5.3 product search, 5.4 product status fix (private catalogue) +
 response envelope + limit fallback, 5.5 variation status fix, 5.6 sanitize-callback
@@ -173,40 +166,48 @@ because it defaults to `$override = false`:
 
 ## Verified
 
-Confirmed by real requests against staging.cartmixbd.com. **Step 3 is signed off** —
-3a and 3b at 5.6, 3c at 5.7 — **and step 4a at 5.8.** Detail collapsed; see git log for
-the full results.
+Confirmed by real requests against staging.cartmixbd.com. **The whole API layer is
+signed off** — step 3 at 5.6/5.7, step 4a at 5.8, step 4b at 5.9. Per-request detail is
+in git log; kept below are only the findings that encode a decision or a confirmed
+mechanism.
 
-- `GET /ping` — 200, returns user and version.
-- `GET /orders` — pagination arithmetic correct over 4505 orders / 1502 pages; money and
-  state labels match the admin screen (3600.00 + 80.00 shipping = 3680.00, `BD-13` →
-  "Dhaka"); phone search folds `8801…`/`01…` to the same order; name search matches
-  mid-name, so `'s'` + `search_filter => 'customers'` does partial matching on HPOS;
-  `status` accepts `pending` and `wc-pending` alike and 400s on nonsense; `per_page`
-  clamps to 50; trashed orders are excluded.
-- `GET /orders/{id}` — full detail correct, as above.
-- `GET /products` — returns private-status products, so publish + private works;
-  envelope is `{"products": [...]}`; `sku` matching is LIKE/partial and does NOT split
-  the term on commas; `limit=0` falls back to 20.
-- `GET /products` price-first (5.7) — `?search=2500` returns exactly the product priced
-  2500.00, confirming `wc_get_products(['price' => …])` genuinely narrows the query on
-  WooCommerce 11.0.1 rather than being ignored; `?search=250` returns the 250.00 product
-  first then 12 substring matches, confirming Block A ordering, Block B fallback and
-  dedup; `?search=25` 400s with the 3-character message; text search unchanged from 5.6.
+Reads (step 3) — all behaved as specified at scale (4505 orders / 1502 pages): money
+and state labels match the admin screen, status prefixes and `per_page` clamping work,
+trashed orders are excluded, private products are returned, envelopes are right. The
+mechanisms that were in doubt and are now settled on WooCommerce 11.0.1 / HPOS:
 
-- `POST /parse` (step 4a, at 5.8) — multi-line English input extracts name, phone and
-  the full multi-line address, confirming `sanitize_textarea_field()` preserves the
-  newlines address extraction depends on; state resolves and previews shipping correctly
-  for Dhaka (`BD-13`, 80.00), Gazipur (`BD-18`, 120.00) and Madaripur (`BD-36`, 150.00
-  Outside Dhaka); Bangla input extracts Bengali name/address and normalizes Bangla
-  digits to ASCII (০১৮১২৩৪৫৬৭৮ → 01812345678), resolving ঢাকা to `BD-13`; a name-only
-  payload returns 200 with an
-  empty phone, per the mirror-WooCommerce validation rule.
+- Order search — phone folding (`8801…`/`01…` → same order), and `'s'` +
+  `search_filter => 'customers'` does partial mid-name matching.
+- Product search — the `sku` arg is LIKE/partial and does NOT split on commas;
+  `wc_get_products(['price' => …])` genuinely narrows the query, with price-first
+  ordering, Block B fallback and dedup all correct.
 
-Not yet exercised: everything in 5.9 (the write endpoints). Next: upload 5.9, confirm
-`/ping` reports 5.9, then exercise create with an empty payload, create with line items,
-a partial update, and a trash/restore round trip — the last of these is the one with
-unconfirmed mechanics.
+Writes (step 4):
+
+- `POST /parse` — `sanitize_textarea_field()` preserves the newlines address extraction
+  depends on; Dhaka/Gazipur/Madaripur resolve to `BD-13`/`BD-18`/`BD-36` with 80.00 /
+  120.00 / 150.00 previews; Bangla input extracts Bengali name and address and
+  normalizes Bangla digits (০১৮১২৩৪৫৬৭৮ → 01812345678), resolving ঢাকা to `BD-13`.
+- `POST /orders` — `{}` yields a 201 empty pending order at total 0.00, confirming
+  validation mirrors WooCommerce. A full payload prices correctly (product 9167 at
+  175.00 × 2 = 350.00, plus 80.00 Dhaka shipping, 430.00 total). A per-line `total`
+  override applies to both subtotal and total (999.00 → 1079.00 order total).
+  `state=BD-99` is a 400 `aioc_invalid_state`; `product_id=999999` still returns 201
+  with the line skipped, a "Product 999999 not found; line skipped." warning, and
+  shipping applied.
+- **Line items with NO state total 175.00, not 0.00, with no shipping line.** This is
+  the `ai_rest_finalize_order()` fix earning its place: `ai_apply_shipping()`
+  early-returns on an empty state, so `calculate_totals()` must be called directly in
+  that case or the 4.9 zero-total defect returns. Do not remove it.
+- `POST /orders/{id}` — sending only `phone` changes only the phone; name, state, line
+  items and totals are all preserved, confirming the no-declared-defaults decision.
+  Changing `BD-13` → `BD-18` recalculates shipping 80.00 → 120.00 and the total
+  1079.00 → 1119.00, with a new shipping line id.
+- Trash/restore round trip — trash returns 200 `{"id":…,"status":"trash"}`, and restore
+  returns the order at `processing`, its genuine pre-trash status, not the `pending`
+  fallback.
+
+Next: step 5, the PWA shell.
 
 ## Unverified / open
 
@@ -224,17 +225,10 @@ unconfirmed mechanics.
   outside the first 20. 5.7's price-first ordering is verified and fixes this for wholly
   numeric terms, but does nothing for text terms. Ranking for those is an unresolved
   design question and belongs to **step 6**, with the picker.
-- **HPOS trash and restore mechanics.** `POST /orders/{id}/trash` uses
-  `WC_Order::delete(false)`, which under HPOS should route to the orders-table data
-  store's trash path, recording `_wp_trash_meta_status` (prefixed, e.g. `wc-pending`)
-  and `_wp_trash_meta_time` and flipping the row's status to `trash`. Reasoned from how
-  WooCommerce's data store is built, NOT confirmed against 11.0.1 — there is no
-  WooCommerce source available locally. There is also no public HPOS untrash API I could
-  confirm, so restore reads that meta and calls `set_status()`, the approach
-  WooCommerce's own admin list table uses, falling back to `pending`. Two things to
-  check on staging: that `wc_get_order()` returns a trashed order at all (otherwise
-  restore 404s instead of restoring), and that the pre-trash status genuinely round
-  trips.
+- **`GET /orders?search=` does not resolve order ids.** It handles phone and customer
+  name only. A numeric term that is not a valid BD mobile falls through to the name
+  search, so typing an order number returns unrelated name matches rather than that
+  order. Decide in step 5 whether the list screen's search should also resolve ids.
 - CORS has never been exercised — curl sends no Origin header. First real test is the
   PWA.
 - WordPress core's `rest_send_cors_headers()` reflects any Origin API-wide.
@@ -250,6 +244,8 @@ unconfirmed mechanics.
 - README.md and the CHANGELOG.md intro line still say "AI Order Creator" rather than
   "Order Ops".
 - CHANGELOG.md is missing the 4.8 entry; the plugin header has it.
+- Step 4b verification created test orders on staging; they were trashed afterwards, not
+  permanently deleted, so they still sit in staging's trash.
 
 ## Update rule
 
