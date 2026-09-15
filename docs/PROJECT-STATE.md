@@ -3,8 +3,8 @@
 Working brief for resuming this project cold. Present state only — git log is the history.
 
 Plugin header: **Order Ops v5.7**, Updated 2026-09-12. Live runs v4.9. Staging runs
-**5.6**, against which steps 3a and 3b are verified. 5.7 (price-first search, 3-char
-minimum) is committed but NOT uploaded, so nothing in it is exercised.
+**5.7**, matching the committed code, and all of step 3 is verified against it.
+Step 4 (write endpoints) is next.
 
 ## Goal
 
@@ -90,6 +90,15 @@ parser becomes one feature inside it, not the whole tool.
   in-flight requests on each new keystroke so responses can't arrive out of order.
 - Search minimum is 3 characters, so prices below 100 are not searchable by price.
   Accepted trade-off; revisit if sub-100 items appear.
+- Price search uses `wc_get_products(['price' => …])`, confirmed on WooCommerce 11.0.1
+  to genuinely narrow the query. `ai_rest_price_match_product_ids()` also re-checks each
+  candidate numerically in PHP; that is now defence in depth (it guarantees "250" matches
+  a stored "250.00" and bounds the damage if the argument's behaviour ever changes), not
+  the primary mechanism. Two fallbacks are parked and **not needed unless that behaviour
+  changes**: a `meta_query` with `'type' => 'NUMERIC'` (would need confirming that
+  `wc_get_products()` forwards `meta_query`), or reading
+  `wc_product_meta_lookup.min_price`, which is numeric but means raw SQL and is excluded
+  by convention.
 - Product status rules are split on purpose (`includes/rest/routes/products.php`):
   `ai_rest_product_statuses()` returns publish + private and is used for the
   `wc_get_products()` status arg, the parent check and the exact-SKU path;
@@ -104,17 +113,19 @@ parser becomes one feature inside it, not the whole tool.
 | 2 | Restructure, Order Ops rename, REST foundation + ping | done | 5.0 (`9ab4bd3`) |
 | 3a | Read endpoints — orders list, single order | done, **verified on staging** | 5.2 |
 | 3b | Read endpoints — product search | done, **verified on staging** at 5.6 | 5.3–5.6 |
-| 4 | Write endpoints — parse, create, update, trash, restore | not started | — |
+| 3c | Price-first product search + 3-char minimum | done, **verified on staging** at 5.7 | 5.7 |
+| 4 | Write endpoints — parse, create, update, trash, restore | **next**, not started | — |
 | 5 | PWA shell — subdomain, auth, order list | not started | — |
 | 6 | Create/edit form with product picker | not started | — |
 | 7 | Manifest, service worker, install prompt | not started | — |
 
-**Step 3 is complete.** Both read endpoints are verified against staging at 5.6.
+**Step 3 is fully complete, 3a through 3c, all verified against staging.** Step 4 is
+next.
 
 Step 3b shipped over 5.3 product search, 5.4 product status fix (private catalogue) +
 response envelope + limit fallback, 5.5 variation status fix, 5.6 sanitize-callback
-arity fatal. 5.7 (price-first search + 3-char minimum) is a later addition on top and is
-**not** covered by the 5.6 verification — it has not been uploaded.
+arity fatal. Step 3c is 5.7: price-first search for numeric terms, minimum search length
+raised to 3.
 
 v5.1 (`089ac2f`) was an unrelated parser fix (partial-duplicate names in the address),
 not a build step.
@@ -128,8 +139,8 @@ Routes currently registered, all `GET`, all read-only:
 
 ## Verified
 
-Confirmed by real requests against staging.cartmixbd.com. **Steps 3a (order read
-endpoints) and 3b (product search) are both fully verified, at 5.6.**
+Confirmed by real requests against staging.cartmixbd.com. **All of step 3 is verified:
+3a and 3b at 5.6, 3c at 5.7.**
 
 - `GET /ping` — 200, returns user and version.
 - `GET /orders?per_page=3` — 4505 orders total, 1502 pages. Pagination arithmetic
@@ -165,21 +176,23 @@ private-product problem 5.4 fixed), and a 500 under 5.4/5.5 from an uncaught
 `ArgumentCountError` in `WP_REST_Request::sanitize_params()` — the `intval` sanitize
 callback, fixed in 5.6.
 
-Next: upload 5.7, confirm `/ping` reports 5.7, then verify price-first search
-(`?search=2500`) and the 3-character minimum.
+Price-first search (step 3c), at 5.7:
+
+- `GET /products?search=2500` — exactly one row, the product priced 2500.00. Confirms
+  `wc_get_products(['price' => $term])` DOES narrow the query on WooCommerce 11.0.1 —
+  the argument is not silently ignored. The PHP re-check in
+  `ai_rest_price_match_product_ids()` is defence in depth, not the primary mechanism.
+- `GET /products?search=250` — 13 rows: `cartmixbd-batik-gauze-250` (price 250.00)
+  first, then 12 substring matches (1250, 2250, 2500, 3250, 4250, 5250, 6250, 7250,
+  8250, 9250). Confirms Block A ordering, Block B fallback, and dedup — 2500 appears
+  once, in Block B.
+- `GET /products?search=25` — 400 `aioc_search_too_short` with the 3-character message.
+- `GET /products?search=batik` — 15 rows, identical to 5.6, so text search is unchanged.
+
+Next: step 4, the write endpoints.
 
 ## Unverified / open
 
-- **How to query products by price.** `ai_rest_price_match_product_ids()` passes a
-  `price` argument to `wc_get_products()`, which maps onto a `_price` meta comparison —
-  a STRING match, so it alone would not match "250" against a stored "250.00". Whether
-  WooCommerce 11.0.1 supports the argument at all is unconfirmed. The function therefore
-  re-checks every candidate numerically in PHP, capped at 500 candidates, so results are
-  correct either way and a silently-ignored argument degrades rather than floods. If
-  staging shows the argument is ignored, the options are: pass a `meta_query` with
-  `'type' => 'NUMERIC'` (needs confirming that `wc_get_products()` forwards `meta_query`),
-  or read `wc_product_meta_lookup.min_price`, which is numeric but means raw SQL and is
-  excluded by convention. Settle this before step 6.
 - **Untestable in this catalogue.** Price search finds variable parents by their
   `_price`, which WooCommerce syncs to the cheapest variation, so a variation priced at
   the term under a parent with a cheaper variation would not be found. Moot here — there
@@ -188,12 +201,12 @@ Next: upload 5.7, confirm `/ping` reports 5.7, then verify price-first search
   match, via `wc_get_product_id_by_sku()` in `ai_rest_exact_sku_row()`; the parent-first
   search cannot reach a partial variation SKU. No variable products exist here, so this
   cannot be exercised. Parent/simple SKU partial matching IS verified — see Verified.
-- **No price-relevance ranking in product search.** Results come back sorted by name
+- **No relevance ranking for TEXT product searches.** Results come back sorted by name
   (`orderby => title`), so a broad term like "three" returns dozens of near-identical
   rows — this catalogue has one product per price point — and the intended item is often
-  outside the first 20. v5.7 addresses this for wholly numeric terms by putting exact
-  price matches first, but that is itself unverified and does nothing for text terms.
-  Ranking for text searches is still an open design question.
+  outside the first 20. 5.7's price-first ordering is verified and fixes this for wholly
+  numeric terms, but does nothing for text terms. Ranking for those is an unresolved
+  design question and belongs to **step 6**, with the picker.
 - CORS has never been exercised — curl sends no Origin header. First real test is the
   PWA.
 - WordPress core's `rest_send_cors_headers()` reflects any Origin API-wide.
