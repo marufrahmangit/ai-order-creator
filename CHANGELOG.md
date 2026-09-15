@@ -2,6 +2,16 @@
 
 All notable changes to AI Order Creator are documented in this file.
 
+## 5.9
+
+- Added the order write endpoints, completing step 4: `POST /orders` (create, 201), `POST /orders/{id}` (partial update, 200), `POST /orders/{id}/trash` and `POST /orders/{id}/restore`.
+- Validation mirrors WooCommerce rather than being stricter. An empty payload creates an empty order, exactly as the wp-admin "Add order" screen does. The only rejections are values WooCommerce itself would not recognise: an unknown BD state code or order status, each a 400. Everything is validated before any order is created, so a rejected request leaves nothing behind.
+- Updates are **partial** - only fields present in the body change, which is why these are POST and not PUT. Supplying `line_items` replaces all existing product lines rather than patching them, discarding line item ids and meta; omitting the key leaves items untouched.
+- Out-of-stock products are added anyway with a warning naming the product, since WooCommerce admin allows it. A product id that does not exist, or is grouped/external/a variable parent, is skipped with a warning rather than failing the whole request.
+- Shipping is always reapplied via `ai_apply_shipping()` from the single rate table, on create and on every update. Because that function returns early when the billing state is empty, `calculate_totals()` is called directly in that case so a stateless order with line items cannot persist with a total of 0.
+- Trash uses `WC_Order::delete(false)`, the HPOS-correct path, not the legacy `wp_trash_post()`. Restore reads the pre-trash status back from `_wp_trash_meta_status`, falling back to `pending`. No force delete is accepted or passed anywhere.
+- Responses reuse `ai_rest_prepare_order_detail()` so the order shape cannot drift from `GET /orders/{id}`.
+
 ## 5.8
 
 - Added `POST /aioc/v1/parse`, the first step-4 endpoint - though it writes nothing. It takes raw pasted text, runs the existing `ai_get_parsed_order_data()` unchanged, and returns the extracted name, phone, address, state (raw text plus resolved WooCommerce code and label) and customer note.

@@ -2,9 +2,10 @@
 
 Working brief for resuming this project cold. Present state only — git log is the history.
 
-Plugin header: **Order Ops v5.8**, Updated 2026-09-15. Live runs v4.9. Staging runs
-**5.8**, matching the committed code. Step 3 and step 4a are verified against it.
-Step 4b (create/update/trash/restore) is next.
+Plugin header: **Order Ops v5.9**, Updated 2026-09-15. Live runs v4.9. Staging runs
+**5.8**; step 3 and step 4a are verified against it. 5.9 (the order write endpoints) is
+committed but NOT uploaded, so nothing in it is exercised. Step 5 (PWA shell) is next
+once 5.9 is verified.
 
 ## Goal
 
@@ -90,6 +91,17 @@ parser becomes one feature inside it, not the whole tool.
 - Any endpoint taking pasted order text must sanitize with `sanitize_textarea_field()`,
   never `sanitize_text_field()` — the latter strips newlines, and the address parser
   splits on them. Use the `ai_rest_sanitize_textarea()` wrapper.
+- Order updates are PARTIAL and use POST, not PUT: only fields present in the body
+  change. No write-route argument declares a `default`, because WordPress injects
+  defaults into the request, which would make an omitted field indistinguishable from a
+  sent one and silently overwrite stored data.
+- Supplying `line_items` on update REPLACES all existing product lines; omitting the key
+  leaves them untouched. There is no per-item patching — the client holds the full list.
+  Replacement discards line item ids and any line item meta.
+- Line-item eligibility is a TYPE check (simple or variation), never
+  `WC_Product::is_purchasable()`. That function also requires post status `publish`, and
+  this catalogue is `private`, so it would reject everything for any user lacking
+  `edit_post`.
 - Out-of-stock products are returned to the client with `is_in_stock` false, not
   filtered out. The picker greys them and blocks adding. Write endpoints must re-check
   stock independently.
@@ -127,14 +139,14 @@ parser becomes one feature inside it, not the whole tool.
 | 3b | Read endpoints — product search | done, **verified on staging** at 5.6 | 5.3–5.6 |
 | 3c | Price-first product search + 3-char minimum | done, **verified on staging** at 5.7 | 5.7 |
 | 4a | `POST /parse` — text in, structured data out, writes nothing | done, **verified on staging** at 5.8 | 5.8 |
-| 4b | Write endpoints — create, update, trash, restore | **next**, not started | — |
+| 4b | Write endpoints — create, update, trash, restore | done, not yet on staging | 5.9 |
 | 5 | PWA shell — subdomain, auth, order list | not started | — |
 | 6 | Create/edit form with product picker | not started | — |
 | 7 | Manifest, service worker, install prompt | not started | — |
 
 **Step 3 is fully complete, 3a through 3c, all verified against staging.** Step 4 is
-underway: 4a (`POST /parse`) is built and awaiting its first staging test; 4b (the
-endpoints that actually write) is next.
+built end to end: 4a (`POST /parse`) is verified at 5.8; 4b (create, update, trash,
+restore) shipped in 5.9 and awaits its first staging test. Step 5 follows.
 
 Step 3b shipped over 5.3 product search, 5.4 product status fix (private catalogue) +
 response envelope + limit fallback, 5.5 variation status fix, 5.6 sanitize-callback
@@ -144,14 +156,20 @@ raised to 3.
 v5.1 (`089ac2f`) was an unrelated parser fix (partial-duplicate names in the address),
 not a build step.
 
-Routes currently registered. None of them writes anything yet — `/parse` is POST
-because it takes a text body, not because it persists:
+Routes currently registered. `/orders` and `/orders/{id}` each carry both a GET and a
+POST endpoint, registered from two different files — `register_rest_route()` merges them
+because it defaults to `$override = false`:
 
 - `GET  /aioc/v1/ping` — `includes/rest/rest.php`
 - `GET  /aioc/v1/orders` — `includes/rest/routes/orders.php`
 - `GET  /aioc/v1/orders/{id}` — `includes/rest/routes/orders.php`
 - `GET  /aioc/v1/products` — `includes/rest/routes/products.php`
-- `POST /aioc/v1/parse` — `includes/rest/routes/parse.php`
+- `POST /aioc/v1/parse` — `includes/rest/routes/parse.php` (writes nothing; POST only
+  because it takes a text body)
+- `POST /aioc/v1/orders` — `includes/rest/routes/orders-write.php` (create, 201)
+- `POST /aioc/v1/orders/{id}` — partial update, 200
+- `POST /aioc/v1/orders/{id}/trash` — 200 `{id, status:"trash"}`
+- `POST /aioc/v1/orders/{id}/restore` — 200, full order object
 
 ## Verified
 
@@ -176,20 +194,19 @@ the full results.
   first then 12 substring matches, confirming Block A ordering, Block B fallback and
   dedup; `?search=25` 400s with the 3-character message; text search unchanged from 5.6.
 
-`POST /parse` (step 4a), at 5.8:
+- `POST /parse` (step 4a, at 5.8) — multi-line English input extracts name, phone and
+  the full multi-line address, confirming `sanitize_textarea_field()` preserves the
+  newlines address extraction depends on; state resolves and previews shipping correctly
+  for Dhaka (`BD-13`, 80.00), Gazipur (`BD-18`, 120.00) and Madaripur (`BD-36`, 150.00
+  Outside Dhaka); Bangla input extracts Bengali name/address and normalizes Bangla
+  digits to ASCII (০১৮১২৩৪৫৬৭৮ → 01812345678), resolving ঢাকা to `BD-13`; a name-only
+  payload returns 200 with an
+  empty phone, per the mirror-WooCommerce validation rule.
 
-- Multi-line English input — name, phone and the full multi-line address all extracted;
-  `state_code` `BD-13`; `shipping_preview` 80.00 Dhaka Flat Rate. Confirms
-  `sanitize_textarea_field()` preserves newlines, which the parser's address extraction
-  depends on.
-- Gazipur address — `BD-18`, 120.00 Gazipur Flat Rate.
-- Madaripur address — `BD-36`, 150.00 Outside Dhaka Flat Rate.
-- Bangla input — Bengali name and address extracted, Bangla digits normalized to ASCII
-  (০১৮১২৩৪৫৬৭৮ → 01812345678), state resolved to `BD-13` from ঢাকা.
-- Name only, no phone — 200 with an empty phone, which is correct per the
-  mirror-WooCommerce validation rule under Product decisions.
-
-Next: step 4b, the endpoints that actually write.
+Not yet exercised: everything in 5.9 (the write endpoints). Next: upload 5.9, confirm
+`/ping` reports 5.9, then exercise create with an empty payload, create with line items,
+a partial update, and a trash/restore round trip — the last of these is the one with
+unconfirmed mechanics.
 
 ## Unverified / open
 
@@ -207,6 +224,17 @@ Next: step 4b, the endpoints that actually write.
   outside the first 20. 5.7's price-first ordering is verified and fixes this for wholly
   numeric terms, but does nothing for text terms. Ranking for those is an unresolved
   design question and belongs to **step 6**, with the picker.
+- **HPOS trash and restore mechanics.** `POST /orders/{id}/trash` uses
+  `WC_Order::delete(false)`, which under HPOS should route to the orders-table data
+  store's trash path, recording `_wp_trash_meta_status` (prefixed, e.g. `wc-pending`)
+  and `_wp_trash_meta_time` and flipping the row's status to `trash`. Reasoned from how
+  WooCommerce's data store is built, NOT confirmed against 11.0.1 — there is no
+  WooCommerce source available locally. There is also no public HPOS untrash API I could
+  confirm, so restore reads that meta and calls `set_status()`, the approach
+  WooCommerce's own admin list table uses, falling back to `pending`. Two things to
+  check on staging: that `wc_get_order()` returns a trashed order at all (otherwise
+  restore 404s instead of restoring), and that the pre-trash status genuinely round
+  trips.
 - CORS has never been exercised — curl sends no Origin header. First real test is the
   PWA.
 - WordPress core's `rest_send_cors_headers()` reflects any Origin API-wide.
