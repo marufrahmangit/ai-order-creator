@@ -3,8 +3,8 @@
 Working brief for resuming this project cold. Present state only — git log is the history.
 
 Plugin header: **Order Ops v5.8**, Updated 2026-09-15. Live runs v4.9. Staging runs
-**5.7**; all of step 3 is verified against it. 5.8 (`POST /parse`) is committed but NOT
-uploaded, so nothing in it is exercised. Step 4 is underway.
+**5.8**, matching the committed code. Step 3 and step 4a are verified against it.
+Step 4b (create/update/trash/restore) is next.
 
 ## Goal
 
@@ -76,6 +76,14 @@ parser becomes one feature inside it, not the whole tool.
   optional, never required.
 - District is a dropdown of WooCommerce BD states, never free text — shipping depends
   on the state code resolving.
+- **Field-level validation mirrors WooCommerce, not stricter.** WooCommerce permits
+  saving an order with no phone, no address, no line items and no state — details can be
+  filled in later. The app must permit the same. Do NOT add required-field validation to
+  any write endpoint beyond what WooCommerce itself enforces. Specifically: `POST
+  /orders` must accept a partial or empty payload and create the order anyway, exactly
+  as the wp-admin "Add order" screen does. `/parse` already behaves this way — it
+  succeeds with a name and no phone, returning empty strings for unextracted fields
+  (verified on staging at 5.8).
 - `POST /parse` returns data and creates nothing. Always parse → review → save; never
   blind-create. Implemented in 5.8; it also returns a `shipping_preview` from the pure
   rate table so staff see the cost before saving.
@@ -118,7 +126,7 @@ parser becomes one feature inside it, not the whole tool.
 | 3a | Read endpoints — orders list, single order | done, **verified on staging** | 5.2 |
 | 3b | Read endpoints — product search | done, **verified on staging** at 5.6 | 5.3–5.6 |
 | 3c | Price-first product search + 3-char minimum | done, **verified on staging** at 5.7 | 5.7 |
-| 4a | `POST /parse` — text in, structured data out, writes nothing | done, not yet on staging | 5.8 |
+| 4a | `POST /parse` — text in, structured data out, writes nothing | done, **verified on staging** at 5.8 | 5.8 |
 | 4b | Write endpoints — create, update, trash, restore | **next**, not started | — |
 | 5 | PWA shell — subdomain, auth, order list | not started | — |
 | 6 | Create/edit form with product picker | not started | — |
@@ -147,8 +155,9 @@ because it takes a text body, not because it persists:
 
 ## Verified
 
-Confirmed by real requests against staging.cartmixbd.com. **All of step 3 is signed
-off** — 3a and 3b at 5.6, 3c at 5.7. Detail collapsed; see git log for the full results.
+Confirmed by real requests against staging.cartmixbd.com. **Step 3 is signed off** —
+3a and 3b at 5.6, 3c at 5.7 — **and step 4a at 5.8.** Detail collapsed; see git log for
+the full results.
 
 - `GET /ping` — 200, returns user and version.
 - `GET /orders` — pagination arithmetic correct over 4505 orders / 1502 pages; money and
@@ -167,9 +176,20 @@ off** — 3a and 3b at 5.6, 3c at 5.7. Detail collapsed; see git log for the ful
   first then 12 substring matches, confirming Block A ordering, Block B fallback and
   dedup; `?search=25` 400s with the 3-character message; text search unchanged from 5.6.
 
-Not yet exercised: everything in 5.8 (`POST /parse`). Next: upload 5.8, confirm `/ping`
-reports 5.8, then exercise `/parse` with real pasted text — including a multi-line
-address, to confirm newlines survive the request.
+`POST /parse` (step 4a), at 5.8:
+
+- Multi-line English input — name, phone and the full multi-line address all extracted;
+  `state_code` `BD-13`; `shipping_preview` 80.00 Dhaka Flat Rate. Confirms
+  `sanitize_textarea_field()` preserves newlines, which the parser's address extraction
+  depends on.
+- Gazipur address — `BD-18`, 120.00 Gazipur Flat Rate.
+- Madaripur address — `BD-36`, 150.00 Outside Dhaka Flat Rate.
+- Bangla input — Bengali name and address extracted, Bangla digits normalized to ASCII
+  (০১৮১২৩৪৫৬৭৮ → 01812345678), state resolved to `BD-13` from ঢাকা.
+- Name only, no phone — 200 with an empty phone, which is correct per the
+  mirror-WooCommerce validation rule under Product decisions.
+
+Next: step 4b, the endpoints that actually write.
 
 ## Unverified / open
 
