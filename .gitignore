@@ -30,6 +30,5 @@ Thumbs.db
 debug.log
 error_log
 
-# Local scratch
-pass
-test.txt
+# Local scratch. One file, name and spaces included - not two patterns.
+pass and test.txt
