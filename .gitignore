@@ -1,0 +1,35 @@
+# The plugin itself needed nothing ignored. This exists for app/, which step 5
+# introduces with a Node toolchain.
+#
+# Nothing here ignores app/ itself, docs/, includes/ or admin/ - only build
+# output, dependencies and local-machine files.
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Vite build output
+app/dist/
+app/.vite/
+
+# Local environment. app/.env.example is the committed template and is
+# deliberately NOT matched by either pattern below - it carries the variable
+# names with placeholder values, never a real one.
+.env.local
+.env.*.local
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# WordPress debug output, in case a log is ever written into the tree
+debug.log
+error_log
+
+# Local scratch
+pass
+test.txt

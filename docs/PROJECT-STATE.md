@@ -94,10 +94,17 @@ parser becomes one feature inside it, not the whole tool.
   here. Logout is local-only: it forgets the credential without revoking it, so a
   revoke-on-logout route is still owed - the `uuid` in the `/token` response exists for
   that.
-- The PWA lives in **`app/` in this repo**: plain HTML + ES modules + CSS, **no bundler
-  and no build step**, deployed by the same manual file upload as the plugin. There is
-  no local PHP or Node toolchain in this project, and adding one to the deploy path
-  buys nothing the app needs.
+- The PWA lives in **`app/` in this repo**, built with **Vite** (Node toolchain).
+  Superseded the initial no-bundler plan on 2026-09-28, before any app code existed.
+  Deploy is the built output, not the source tree, so `app/dist/` is what reaches the
+  subdomain — the plugin is still uploaded separately and by hand.
+- **`app/.env.local` holds `VITE_API_BASE`** (the staging or live REST root the app
+  talks to) and is **intentionally untracked** — it differs per machine and per
+  environment, and it is what points a local dev server at staging rather than live.
+  **`app/.env.example` is the committed template**: same variable names, placeholder
+  values, no real ones. Anyone cloning this copies the example to `.env.local` and
+  fills it in. `.gitignore` matches `.env.local` and `.env.*.local` only, so the
+  template is never caught by it.
 - One order form, two ways to fill it: paste-and-parse, or type directly. Parsing is
   optional, never required.
 - District is a dropdown of WooCommerce BD states, never free text — shipping depends
