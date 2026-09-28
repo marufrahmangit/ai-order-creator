@@ -68,6 +68,22 @@ function ai_rest_validate_any() {
 }
 
 /**
+ * A password, passed through untouched apart from a string cast.
+ *
+ * Deliberately NOT sanitize_text_field(): that strips tags, decodes entities
+ * and collapses whitespace, any of which silently corrupts a legitimate
+ * account password and turns a correct login into a generic failure the user
+ * cannot diagnose. Nothing is stored from this value - it goes straight to
+ * wp_authenticate() and is discarded - so there is nothing to sanitize for.
+ *
+ * @param mixed $value
+ * @return string
+ */
+function ai_rest_sanitize_password($value) {
+    return (string) $value;
+}
+
+/**
  * Strip an optional 'wc-' prefix from a status slug.
  *
  * @param string $status
@@ -99,6 +115,28 @@ function ai_rest_permission_check() {
         __('You do not have permission to use this API.', 'ai-order-creator'),
         ['status' => 403]
     );
+}
+
+/**
+ * Permission callback for the ONE deliberately unauthenticated route in this
+ * namespace: POST /token, which exchanges an account username and password
+ * for an application password. It cannot require a capability, because the
+ * caller has no credentials the REST API can read yet - core Basic auth
+ * accepts application passwords only, and issuing the first one is the whole
+ * point of the route.
+ *
+ * Named ai_* rather than using __return_true so the namespace keeps its
+ * property that every *_callback is an ai_ function, and so that grepping for
+ * public routes finds exactly one caller.
+ *
+ * The route protects itself instead: see ai_rest_issue_token() in
+ * routes/token.php for credential verification, the manage_woocommerce check
+ * applied after authentication, and the failure throttle.
+ *
+ * @return true
+ */
+function ai_rest_permission_public() {
+    return true;
 }
 
 /**

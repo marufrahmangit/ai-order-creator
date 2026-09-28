@@ -2,6 +2,24 @@
 
 All notable changes to AI Order Creator are documented in this file.
 
+## 6.1
+
+- Added `POST /aioc/v1/token`, the login endpoint. Staff sign in with the ordinary WordPress username and password they already know; the app never asks anyone to find or paste an application password.
+- Core Basic auth cannot accept an account password - `wp_authenticate_application_password()` only ever matches application passwords - so this route bridges the gap once. It verifies the submitted credentials with `wp_authenticate()`, then mints an application password via `WP_Application_Passwords::create_new_application_password()` and returns the plaintext, alongside the canonical `user_login` (the caller may have signed in with an email address), `display_name`, `user_id`, the password's `name` and its `uuid`. The app stores username and password and sends them as Basic auth from then on. The account password is used for that one request and is stored nowhere - not on the device, not here.
+- This is also what sidesteps the Defender application-password truncation: that defect is in wp-admin's *display* of a newly created password, and the plaintext here comes from the create call's return value, before any admin screen is involved.
+- Created passwords are named with a shared `Order Ops (app)` prefix plus a UTC timestamp. The prefix makes them identifiable in Users → Profile → Application Passwords; the timestamp makes each one unique, which is required because core rejects a name the user already has (`application_password_duplicate_name`, 409) - a fixed name would work on a staff member's first login and fail on every one after it. A same-second collision is retried once with a short random suffix.
+- Logging in on a second device does not disturb the first: each login mints its own credential. They therefore accumulate, and nothing revokes them yet - the app's logout only forgets the credential locally. The returned `uuid` is there so a future revoke-on-logout route can target one.
+- Being the only unauthenticated route in the namespace, it carries its own protection:
+  - **Failure throttle.** A transient counter per IP (10 failures per 15 minutes) and per username (5), whichever trips first. Locked-out callers get a 429 with `Retry-After` and a message stating the wait. The window is fixed rather than sliding, so a run of attempts cannot push the expiry out past the stated wait. A successful login clears both counters. WordPress provides nothing for this, so it is written here.
+  - **One generic failure.** An unknown username, a wrong password and a blank field all return the same 401 `aioc_invalid_credentials` with the same message, so the route cannot be used to enumerate account names.
+  - **Capability check after authentication.** A valid login on an account without `manage_woocommerce` gets a 403, not a credential. It is not counted as a failed attempt, since nothing was guessed.
+  - Rate-limit buckets are keyed on a hash, so no plaintext username is written to the options table. Only `REMOTE_ADDR` is used for the IP; `X-Forwarded-For` is deliberately ignored, since a client-supplied header can be varied per request to defeat the limit entirely.
+- Added `ai_rest_sanitize_password()`, which casts to string and nothing else. `sanitize_text_field()` strips tags, decodes entities and collapses whitespace, any of which silently corrupts a legitimate password and turns a correct login into a generic failure the user cannot diagnose. Nothing is persisted from the value, so there is nothing to sanitize for.
+- Added `ai_rest_permission_public()` rather than registering `__return_true`, keeping the namespace rule that every `*_callback` is an `ai_` function and making the single public route greppable.
+- Application password availability is checked before creating, via `wp_is_application_passwords_available_for_user()`. Creation succeeds even when they are disabled for a user, so without this the app would store a credential that fails on every subsequent request.
+- `Cache-Control: no-store` is set on the success response, whose body is a live credential.
+- Decided against resolving order ids in `GET /orders?search=`: staff search by phone, which works today. It stays an open item.
+
 ## 6.0
 
 - Added `GET /aioc/v1/meta` so the app never hardcodes a list WooCommerce owns. It returns `states` (the full BD list, in WooCommerce's own order), `statuses` (every registered order status, `wc-` prefix stripped so the slugs match what the other endpoints accept and return), `currency`, `price_decimals` and `plugin_version`.

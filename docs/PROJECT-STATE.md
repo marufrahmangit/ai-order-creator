@@ -2,9 +2,11 @@
 
 Working brief for resuming this project cold. Present state only — git log is the history.
 
-Plugin header: **Order Ops v6.0**, Updated 2026-09-15. Live runs v4.9. Staging runs
-**5.9**; steps 3 and 4 are verified against it. 6.0 (`GET /meta`) is committed but NOT
-uploaded. **Step 5 (PWA shell) is next**, the first work outside this plugin.
+Plugin header: **Order Ops v6.1**, Updated 2026-09-28. Live runs v4.9. Staging runs
+**5.9**; steps 3, 4a and 4b are verified against it. 6.0 (`GET /meta`) and 6.1
+(`POST /token`) are committed but NOT uploaded, and neither has ever been exercised.
+**Upload 6.1 and verify both, then step 5 (PWA shell)** - the first work outside this
+plugin.
 
 ## Goal
 
@@ -25,10 +27,18 @@ parser becomes one feature inside it, not the whole tool.
   price point. Every variation code path in `products.php` is therefore **untestable in
   this catalogue**, not merely unverified; don't try to exercise it without first
   creating a variable product. The rules above still govern that code if any appear.
-- Auth: WP core Application Passwords (Basic auth), user `t45km45ter`
+- Auth: WP core Application Passwords (Basic auth), user `t45km45ter`. Staff never
+  handle one directly - `POST /token` mints it. See Product decisions.
 - The Defender plugin truncates the application-password display in wp-admin,
-  producing unusable credentials. Currently deactivated on staging. Must be handled
-  before the PWA reaches live.
+  producing unusable credentials. Currently deactivated on staging. **`POST /token`
+  (6.1) is what sidesteps this**: the defect is in wp-admin's *display* of a new
+  password, and `/token` reads the plaintext from
+  `WP_Application_Passwords::create_new_application_password()`'s return value, so no
+  admin screen is involved and truncation cannot reach the credential. Defender is
+  therefore no longer expected to block the app's login path - but that is reasoned,
+  not tested. Confirm `/token` works with Defender ACTIVE before live, since it also
+  hooks `authenticate` and the `wp_login_failed` action that `wp_authenticate()`
+  fires.
 - Deploy is manual file upload to `wp-content/plugins/ai-order-creator/`. The plugin
   DIRECTORY NAME must never change — renaming deactivates it on the live site. After
   every upload, verify with `GET /aioc/v1/ping` and check the returned version matches
@@ -42,7 +52,11 @@ parser becomes one feature inside it, not the whole tool.
 - Layout: `includes/parsing/`, `includes/orders/`, `includes/rest/`,
   `includes/rest/routes/`, `admin/`
 - REST namespace `aioc/v1`. Every route uses `ai_rest_permission_check()`
-  (`manage_woocommerce`). No public routes.
+  (`manage_woocommerce`) with **exactly one exception**: `POST /token`, which is
+  unauthenticated by necessity - it is what issues the credential, so the caller has
+  none yet. It uses `ai_rest_permission_public()` and protects itself instead
+  (failure throttle, one generic failure message, capability check after
+  authentication). Any second public route needs a reason as good as that one.
 - All money in REST responses is a raw numeric string at 2dp via
   `wc_format_decimal()` + `wc_get_price_decimals()`. Never `wc_price()`, never HTML,
   never currency symbols. The client formats.
@@ -70,6 +84,20 @@ parser becomes one feature inside it, not the whole tool.
   11.0.1/HPOS: `WC_Order::delete(false)` is the correct trash call (not the legacy
   `wp_trash_post()`), `wc_get_order()` does return trashed orders, and restore reading
   `_wp_trash_meta_status` round-trips the pre-trash status.
+- **Login is a WordPress username and password, exchanged once for an application
+  password via `POST /token`.** Staff use the credentials they already know; nobody is
+  asked to generate, find or paste an application password, and the account password is
+  sent once and stored nowhere. The app keeps the returned username and application
+  password in **`localStorage`, persisting until logout** - staff stay signed in across
+  app launches, which is the point of replacing wp-admin on a phone. Logout clears it.
+  The origin serves nothing but this app, which is what makes `localStorage` acceptable
+  here. Logout is local-only: it forgets the credential without revoking it, so a
+  revoke-on-logout route is still owed - the `uuid` in the `/token` response exists for
+  that.
+- The PWA lives in **`app/` in this repo**: plain HTML + ES modules + CSS, **no bundler
+  and no build step**, deployed by the same manual file upload as the plugin. There is
+  no local PHP or Node toolchain in this project, and adding one to the deploy path
+  buys nothing the app needs.
 - One order form, two ways to fill it: paste-and-parse, or type directly. Parsing is
   optional, never required.
 - District is a dropdown of WooCommerce BD states, never free text — shipping depends
@@ -140,12 +168,14 @@ parser becomes one feature inside it, not the whole tool.
 | 4a | `POST /parse` — text in, structured data out, writes nothing | done, **verified on staging** at 5.8 | 5.8 |
 | 4b | Write endpoints — create, update, trash, restore | done, **verified on staging** at 5.9 | 5.9 |
 | 4c | `GET /meta` — states, statuses, currency for the app | done, not yet on staging | 6.0 |
+| 4d | `POST /token` — login; account password → app password | done, not yet on staging | 6.1 |
 | 5 | PWA shell — subdomain, auth, order list | not started | — |
 | 6 | Create/edit form with product picker | not started | — |
 | 7 | Manifest, service worker, install prompt | not started | — |
 
 **Steps 3 and 4 are complete** — 3a–3c at 5.6/5.7, 4a at 5.8, 4b at 5.9, all verified;
-4c (`GET /meta`, 6.0) awaits its first staging test. Step 5 begins the PWA itself.
+4c (`GET /meta`, 6.0) and 4d (`POST /token`, 6.1) await their first staging test. Step 5
+begins the PWA itself.
 
 Step 3b shipped over 5.3 product search, 5.4 product status fix (private catalogue) +
 response envelope + limit fallback, 5.5 variation status fix, 5.6 sanitize-callback
@@ -164,6 +194,10 @@ because it defaults to `$override = false`:
 - `GET  /aioc/v1/orders/{id}` — `includes/rest/routes/orders.php`
 - `GET  /aioc/v1/products` — `includes/rest/routes/products.php`
 - `GET  /aioc/v1/meta` — `includes/rest/routes/meta.php` (states, statuses, currency)
+- `POST /aioc/v1/token` — `includes/rest/routes/token.php`. **The only unauthenticated
+  route.** Username + password in, a newly minted application password out (201).
+  Generic 401 on any bad credential, 403 for a valid login lacking `manage_woocommerce`,
+  429 with `Retry-After` when throttled.
 - `POST /aioc/v1/parse` — `includes/rest/routes/parse.php` (writes nothing; POST only
   because it takes a text body)
 - `POST /aioc/v1/orders` — `includes/rest/routes/orders-write.php` (create, 201)
@@ -212,8 +246,11 @@ Writes (step 4):
   returns the order at `processing`, its genuine pre-trash status, not the `pending`
   fallback.
 
-Not yet exercised: `GET /meta` (6.0). Next: upload 6.0, confirm `/ping` reports 6.0 and
-`/meta` returns the state and status lists, then step 5 — the PWA shell.
+Not yet exercised: `GET /meta` (6.0), `POST /token` (6.1). Next: upload 6.1, confirm
+`/ping` reports **6.1**, then verify `/meta` returns the state and status lists and that
+`/token` issues a usable credential — log in with the account password, then make a
+second request authenticating with the application password it returned. Then step 5,
+the PWA shell.
 
 ## Unverified / open
 
@@ -232,9 +269,34 @@ Not yet exercised: `GET /meta` (6.0). Next: upload 6.0, confirm `/ping` reports 
 - **`GET /orders?search=` does not resolve order ids.** It handles phone and customer
   name only. A numeric term that is not a valid BD mobile falls through to the name
   search, so typing an order number returns unrelated name matches rather than that
-  order. Decide in step 5 whether the list screen's search should also resolve ids.
+  order. **Decided: id resolution is not needed** — staff search by phone, which works
+  today. Kept here rather than deleted, because the fall-through is still a latent
+  surprise if anyone does type an order number into the list search.
+- **Nothing in `POST /token` (6.1) has run.** Unverified specifically: that
+  `wp_authenticate()` accepts the account password on a REST request as expected; that
+  `WP_Application_Passwords::create_new_application_password()` returns
+  `[plaintext, item]` with a 24-character space-free plaintext at `[0]` and a `uuid` in
+  `[1]`; that the credential it returns then authenticates over Basic auth; and that
+  `wp_is_application_passwords_available_for_user()` exists and returns true on
+  staging. Test the throttle deliberately — 5 wrong passwords for one username should
+  give a 429 with `Retry-After`, while a 6th attempt under a *different* username from
+  the same IP should still be allowed until the IP bucket fills at 10.
+- **`/token` leaks account existence through timing, not through its responses.**
+  `wp_authenticate()` returns faster for an unknown username than for a known one with
+  a wrong password, because no hash is compared. The responses themselves are
+  identical, and the throttle bounds how much an attacker can sample. Not mitigated;
+  recorded so it is not rediscovered as a bug.
+- **Application passwords accumulate.** Every login mints one and nothing revokes them
+  — deliberately, so signing in on a phone does not sign out a laptop. Expect a growing
+  list under the `Order Ops (app)` prefix in the user profile, and prune it by hand
+  until a revoke route exists.
 - CORS has never been exercised — curl sends no Origin header. First real test is the
-  PWA.
+  PWA. `/token` needs it too: being unauthenticated does not exempt it, and a browser
+  will preflight it because of the JSON content type. The app's fetches must NOT send
+  cookies (no `credentials: 'include'`): if WordPress sees a logged-in auth cookie on a
+  REST request without a nonce, `rest_cookie_check_errors()` rejects it with
+  `rest_cookie_invalid_nonce` — a 403 that looks like a permissions bug and is not one.
+  Basic auth is the only credential the app should ever send.
 - WordPress core's `rest_send_cors_headers()` reflects any Origin API-wide.
   `ai_rest_cors_headers()` strips those headers for `aioc/v1` routes when the
   configured origin is empty or mismatched. Untested.
