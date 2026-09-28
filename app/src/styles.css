@@ -1,0 +1,363 @@
+/*
+ * Mobile-first. This is used on a phone, one-handed, so tap targets are 44px
+ * and nothing depends on hover.
+ */
+
+:root {
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --ink: #111827;
+  --ink-muted: #6b7280;
+  --line: #e5e7eb;
+  --accent: #1f2937;
+  --danger: #b42318;
+  --radius: 10px;
+  --tap: 44px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Bengali customer names and addresses are common in this data; let the
+     platform pick a font that can render them rather than forcing a stack. */
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Font size 16px on inputs specifically: anything smaller makes iOS Safari
+   zoom the whole page on focus. */
+input,
+select,
+button {
+  font: inherit;
+  font-size: 16px;
+}
+
+.app {
+  min-height: 100vh;
+}
+
+/* ---------- Buttons ---------- */
+
+.button {
+  min-height: var(--tap);
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  width: 100%;
+}
+
+.button.link {
+  border: 0;
+  background: none;
+  color: #fff;
+  padding: 0 4px;
+  text-decoration: underline;
+  min-height: auto;
+}
+
+/* ---------- Login ---------- */
+
+.login {
+  max-width: 420px;
+  margin: 0 auto;
+  padding: max(32px, env(safe-area-inset-top)) 20px 24px;
+}
+
+.login-title {
+  margin: 8px 0 4px;
+  font-size: 26px;
+}
+
+.login-hint {
+  margin: 0 0 20px;
+  color: var(--ink-muted);
+}
+
+.login-form {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+
+.field {
+  margin-bottom: 16px;
+}
+
+.field label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.field input {
+  width: 100%;
+  min-height: var(--tap);
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  color: var(--ink);
+}
+
+.field input:focus-visible,
+.search-input:focus-visible,
+.status-select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.error {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: #fdecea;
+  border: 1px solid #f5c6c2;
+  color: var(--danger);
+}
+
+/* ---------- Header ---------- */
+
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--accent);
+  color: #fff;
+  padding: max(12px, env(safe-area-inset-top)) 16px 12px;
+}
+
+.header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.app-title {
+  margin: 0;
+  font-size: 20px;
+}
+
+.signed-in-as {
+  margin: 2px 0 10px;
+  font-size: 13px;
+  opacity: 0.8;
+}
+
+.filters {
+  display: flex;
+  gap: 8px;
+}
+
+.search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: var(--tap);
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+}
+
+.status-select {
+  flex: 0 0 auto;
+  max-width: 42%;
+  min-height: var(--tap);
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: #fff;
+  color: var(--ink);
+}
+
+/* ---------- List ---------- */
+
+.orders-main {
+  padding: 12px 16px calc(24px + env(safe-area-inset-bottom));
+}
+
+.status-line {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+
+.status-line.error {
+  color: var(--danger);
+  font-size: 15px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+
+.card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.order-number {
+  font-weight: 700;
+}
+
+.customer {
+  margin: 6px 0 2px;
+  /* Long unbroken Bengali strings would otherwise push the card wide. */
+  overflow-wrap: anywhere;
+}
+
+.phone {
+  margin: 0;
+  font-size: 14px;
+}
+
+.phone a {
+  color: var(--ink-muted);
+}
+
+.card-bottom {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+
+.total {
+  font-weight: 700;
+  color: var(--ink);
+  font-size: 15px;
+}
+
+/* Status badges are keyed on the slug, never on the label - labels are
+   display-only and some carry stray whitespace. An unrecognised slug simply
+   gets the default grey, which is what makes a plugin-registered status safe. */
+.badge {
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #eef0f3;
+  color: #374151;
+  white-space: nowrap;
+}
+
+.badge-pending {
+  background: #fdf3d7;
+  color: #8a5a00;
+}
+
+.badge-processing {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.badge-on-hold {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+
+.badge-completed {
+  background: #d9f2e3;
+  color: #14532d;
+}
+
+.badge-cancelled,
+.badge-failed {
+  background: #fdecea;
+  color: var(--danger);
+}
+
+.badge-refunded {
+  background: #e5e7eb;
+  color: #374151;
+}
+
+/* ---------- Pager ---------- */
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.page-label {
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+
+/* ---------- Setup / loading ---------- */
+
+.setup,
+.loading {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 40px 20px;
+}
+
+.setup h1 {
+  font-size: 20px;
+}
+
+.setup-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.muted {
+  color: var(--ink-muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.code {
+  background: #eef0f3;
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  overflow-x: auto;
+  font-size: 14px;
+}

@@ -44,6 +44,18 @@ parser becomes one feature inside it, not the whole tool.
   origin and cannot cover both at once**, so flipping it breaks local development until
   it is flipped back. Expect to move it back and forth, and suspect it first when the
   app gets a CORS failure after working yesterday.
+- **There are now TWO deploys, and they are different in kind.** The plugin is a manual
+  upload of SOURCE. The app is a manual upload of BUILD OUTPUT: `ops.cartmixbd.com`
+  serves `app/dist/`, which is produced locally by `npm run build` in `app/` and is
+  **not in the repo** (`.gitignore`). So what runs on the subdomain is never what is in
+  git — checking out a commit tells you what the app was built FROM, not what is live.
+  Rebuild and re-upload after every app change; there is no build step on the server.
+  The two deploys are independent: shipping app changes does not touch the plugin, and
+  vice versa.
+  - `VITE_API_BASE` is baked into the bundle at BUILD time, not read at runtime.
+    A build made against staging keeps pointing at staging wherever it is uploaded, so
+    the environment is chosen by which `.env.local` was in place when `npm run build`
+    ran. Check it before uploading to live.
 - Deploy is manual file upload to `wp-content/plugins/ai-order-creator/`. The plugin
   DIRECTORY NAME must never change — renaming deactivates it on the live site. After
   every upload, verify with `GET /aioc/v1/ping` and check the returned version matches
@@ -75,6 +87,14 @@ parser becomes one feature inside it, not the whole tool.
   `ai_rest_validate_*` wrappers in `rest.php`; `grep "_callback'.*=> '" | grep -v ai_`
   must stay empty.
 - Logic files produce no output. Presentation lives in `admin/views/`.
+- App layout (`app/src/`): `api.js` is the ONLY module that calls `fetch` — one place
+  where auth, CORS, error shape and abort handling live. `auth.js` owns the stored
+  credential, `meta.js` the session-cached `/meta`, `format.js` money and dates,
+  `dom.js` node building, `views/` one file per screen. Views never call `fetch`
+  directly.
+- The app builds nodes and sets `textContent`; it never assembles HTML from data.
+  Order data is staff-pasted free text, so string-built markup would be an injection
+  risk. `dom.js` has no `html` option by design.
 
 ## Product decisions
 
@@ -192,7 +212,7 @@ parser becomes one feature inside it, not the whole tool.
 | 4b | Write endpoints — create, update, trash, restore | done, **verified on staging** at 5.9 | 5.9 |
 | 4c | `GET /meta` — states, statuses, currency for the app | done, **verified on staging** at 6.1 | 6.0 |
 | 4d | `POST /token` — login; account password → app password | done, **verified on staging** at 6.1 | 6.1 |
-| 5 | PWA shell — subdomain, auth, order list | in progress | — |
+| 5 | PWA shell — subdomain, auth, order list | built, **unverified against staging in a browser** | — |
 | 6 | Create/edit form with product picker | not started | — |
 | 7 | Manifest, service worker, install prompt | not started | — |
 
@@ -325,6 +345,12 @@ Unverified.
   — deliberately, so signing in on a phone does not sign out a laptop. Expect a growing
   list under the `Order Ops (app)` prefix in the user profile, and prune it by hand
   until a revoke route exists.
+- **The step 5 shell has never spoken to staging.** It builds (Vite 7.3.6, 11.4 kB of
+  JS) and the dev server serves it on 5173, but no request has been made from a
+  browser: the login screen, `/token` from `fetch`, the order list, the status filter,
+  pagination and money formatting are all unexercised end to end. First run is
+  `npm run dev` in `app/` with `ai_app_origin` set to `http://localhost:5173`. Expect
+  the first failure to be CORS, not code.
 - **CORS has still never been exercised.** Every verification so far was curl, which
   sends no `Origin` header, so `ai_rest_cors_headers()` — the origin match, the
   header-stripping mismatch path and the `OPTIONS` preflight short-circuit — remains
