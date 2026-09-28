@@ -3,10 +3,9 @@
 Working brief for resuming this project cold. Present state only — git log is the history.
 
 Plugin header: **Order Ops v6.1**, Updated 2026-09-28. Live runs v4.9. Staging runs
-**5.9**; steps 3, 4a and 4b are verified against it. 6.0 (`GET /meta`) and 6.1
-(`POST /token`) are committed but NOT uploaded, and neither has ever been exercised.
-**Upload 6.1 and verify both, then step 5 (PWA shell)** - the first work outside this
-plugin.
+**6.1**, and **the entire API layer is verified against it** — steps 3 and 4 complete,
+including `GET /meta` and `POST /token`. **No API gate remains.** **Step 5 (the PWA
+shell) is the work in hand**, the first outside this plugin.
 
 ## Goal
 
@@ -39,6 +38,12 @@ parser becomes one feature inside it, not the whole tool.
   not tested. Confirm `/token` works with Defender ACTIVE before live, since it also
   hooks `authenticate` and the `wp_login_failed` action that `wp_authenticate()`
   fires.
+- **`ai_app_origin` on staging is currently `http://localhost:5173`** — the Vite dev
+  server — so CORS grants reach a local dev machine and nothing else. It must become
+  `https://ops.cartmixbd.com` when the built app is deployed. **The setting holds one
+  origin and cannot cover both at once**, so flipping it breaks local development until
+  it is flipped back. Expect to move it back and forth, and suspect it first when the
+  app gets a CORS failure after working yesterday.
 - Deploy is manual file upload to `wp-content/plugins/ai-order-creator/`. The plugin
   DIRECTORY NAME must never change — renaming deactivates it on the live site. After
   every upload, verify with `GET /aioc/v1/ping` and check the returned version matches
@@ -114,6 +119,17 @@ parser becomes one feature inside it, not the whole tool.
   upstream or a status registered by another plugin propagates without an app rebuild.
   Money formatting likewise uses the endpoint's `currency` and `price_decimals` rather
   than assuming BDT and 2dp. Cache the response for the session, not per screen.
+- **Key on `code`, never on `label`. Labels are display-only.** Confirmed at 6.1: some
+  WooCommerce BD state labels carry trailing whitespace (`"Faridpur "`, `"Manikganj "`).
+  That comes from WooCommerce's own list, not from this plugin, and is deliberately not
+  "fixed" in `/meta` — the endpoint reports what WooCommerce holds. So no comparison,
+  lookup, sort key or equality test in the app may use a label string. Trim labels for
+  display if it matters visually; match on `code` always. The same rule applies to
+  status `slug` versus `label`.
+- **The app's status dropdown must filter out `checkout-draft`.** WooCommerce registers
+  it for abandoned-cart drafts; it is not a status staff should ever set. `/meta`
+  returning it is correct — it reports what WooCommerce registers — so the filtering
+  belongs in the app, not the endpoint. It arrives among the 8 statuses `/meta` returns.
 - **Field-level validation mirrors WooCommerce, not stricter.** WooCommerce permits
   saving an order with no phone, no address, no line items and no state — details can be
   filled in later. The app must permit the same. Do NOT add required-field validation to
@@ -174,9 +190,9 @@ parser becomes one feature inside it, not the whole tool.
 | 3c | Price-first product search + 3-char minimum | done, **verified on staging** at 5.7 | 5.7 |
 | 4a | `POST /parse` — text in, structured data out, writes nothing | done, **verified on staging** at 5.8 | 5.8 |
 | 4b | Write endpoints — create, update, trash, restore | done, **verified on staging** at 5.9 | 5.9 |
-| 4c | `GET /meta` — states, statuses, currency for the app | done, not yet on staging | 6.0 |
-| 4d | `POST /token` — login; account password → app password | done, not yet on staging | 6.1 |
-| 5 | PWA shell — subdomain, auth, order list | not started | — |
+| 4c | `GET /meta` — states, statuses, currency for the app | done, **verified on staging** at 6.1 | 6.0 |
+| 4d | `POST /token` — login; account password → app password | done, **verified on staging** at 6.1 | 6.1 |
+| 5 | PWA shell — subdomain, auth, order list | in progress | — |
 | 6 | Create/edit form with product picker | not started | — |
 | 7 | Manifest, service worker, install prompt | not started | — |
 
@@ -253,11 +269,24 @@ Writes (step 4):
   returns the order at `processing`, its genuine pre-trash status, not the `pending`
   fallback.
 
-Not yet exercised: `GET /meta` (6.0), `POST /token` (6.1). Next: upload 6.1, confirm
-`/ping` reports **6.1**, then verify `/meta` returns the state and status lists and that
-`/token` issues a usable credential — log in with the account password, then make a
-second request authenticating with the application password it returned. Then step 5,
-the PWA shell.
+Meta and login (step 4c/4d), confirmed at 6.1 — `/ping` reports `6.1`, so the upload is
+the code below:
+
+- `GET /meta` — returns all **64 BD districts**, **8 order statuses** with the `wc-`
+  prefix stripped, `currency` `BDT` and `price_decimals` `2`. The app has no reason to
+  hardcode any of it.
+- **`POST /token` works end to end.** A real WordPress account username and password
+  returned a full 24-character application password, the canonical `user_login`, a
+  timestamped `name` and a `uuid` — and that minted credential then authenticated
+  successfully against `/ping`. So the whole premise holds: core Basic auth accepts the
+  application password `/token` mints, staff never touch one directly, and the
+  Defender display truncation is genuinely bypassed.
+- Two findings that constrain the app rather than the API, both now recorded under
+  Product decisions: some state labels carry **trailing whitespace**, and `/meta`
+  includes **`checkout-draft`**.
+
+The rate-limit throttle on `/token` is the one part still unexercised; it stays under
+Unverified.
 
 ## Unverified / open
 
@@ -279,15 +308,14 @@ the PWA shell.
   order. **Decided: id resolution is not needed** — staff search by phone, which works
   today. Kept here rather than deleted, because the fall-through is still a latent
   surprise if anyone does type an order number into the list search.
-- **Nothing in `POST /token` (6.1) has run.** Unverified specifically: that
-  `wp_authenticate()` accepts the account password on a REST request as expected; that
-  `WP_Application_Passwords::create_new_application_password()` returns
-  `[plaintext, item]` with a 24-character space-free plaintext at `[0]` and a `uuid` in
-  `[1]`; that the credential it returns then authenticates over Basic auth; and that
-  `wp_is_application_passwords_available_for_user()` exists and returns true on
-  staging. Test the throttle deliberately — 5 wrong passwords for one username should
-  give a 429 with `Retry-After`, while a 6th attempt under a *different* username from
-  the same IP should still be allowed until the IP bucket fills at 10.
+- **The `/token` rate limit has never been exercised.** The happy path is verified;
+  the throttle is not. Untested: that 5 wrong passwords for one username produce a 429
+  with `Retry-After`; that a 6th attempt under a *different* username from the same IP
+  is still allowed until the IP bucket fills at 10; that a success clears both buckets;
+  and that the fixed window really does expire rather than extend. Test it **last** in
+  any session — filling the IP bucket locks out correct logins from that address for 15
+  minutes too, including yours. Clear the `aioc_lf_*` transients rather than waiting it
+  out.
 - **`/token` leaks account existence through timing, not through its responses.**
   `wp_authenticate()` returns faster for an unknown username than for a known one with
   a wrong password, because no hash is compared. The responses themselves are
@@ -297,13 +325,17 @@ the PWA shell.
   — deliberately, so signing in on a phone does not sign out a laptop. Expect a growing
   list under the `Order Ops (app)` prefix in the user profile, and prune it by hand
   until a revoke route exists.
-- CORS has never been exercised — curl sends no Origin header. First real test is the
-  PWA. `/token` needs it too: being unauthenticated does not exempt it, and a browser
-  will preflight it because of the JSON content type. The app's fetches must NOT send
-  cookies (no `credentials: 'include'`): if WordPress sees a logged-in auth cookie on a
-  REST request without a nonce, `rest_cookie_check_errors()` rejects it with
-  `rest_cookie_invalid_nonce` — a 403 that looks like a permissions bug and is not one.
-  Basic auth is the only credential the app should ever send.
+- **CORS has still never been exercised.** Every verification so far was curl, which
+  sends no `Origin` header, so `ai_rest_cors_headers()` — the origin match, the
+  header-stripping mismatch path and the `OPTIONS` preflight short-circuit — remains
+  untested. The first real test is the step 5 shell in a browser against
+  `ai_app_origin = http://localhost:5173`. `/token` needs it too: being unauthenticated
+  does not exempt it, and a browser preflights it because of the JSON content type.
+  The app's fetches must NOT send cookies (no `credentials: 'include'`): if WordPress
+  sees a logged-in auth cookie on a REST request without a nonce,
+  `rest_cookie_check_errors()` rejects it with `rest_cookie_invalid_nonce` — a 403 that
+  looks like a permissions bug and is not one. Basic auth is the only credential the
+  app should ever send.
 - WordPress core's `rest_send_cors_headers()` reflects any Origin API-wide.
   `ai_rest_cors_headers()` strips those headers for `aioc/v1` routes when the
   configured origin is empty or mismatched. Untested.
