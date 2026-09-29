@@ -17,6 +17,56 @@ if (!defined('ABSPATH')) exit;
 define('AIOC_PRODUCT_SORT_WINDOW', 500);
 
 /**
+ * Warm the post, meta and term caches for a set of product ids in one pass.
+ *
+ * Call this immediately before a loop that turns ids into product objects.
+ * Without it, wc_get_product() goes to the database per id, three times over:
+ *
+ *   - WC_Product_Data_Store_CPT::read() calls get_post()      -> post cache
+ *   - read_product_data() calls get_post_meta()               -> meta cache
+ *   - get_product_type() calls get_the_terms($id,'product_type'),
+ *     and read_visibility() reads product_visibility          -> term cache
+ *
+ * _prime_post_caches() fills all three in up to three queries total, and its
+ * first query fetches only ids not already cached, so calling it again for an
+ * overlapping set costs almost nothing. That is why the price block and the
+ * row loop can both prime without the second one being wasted work.
+ *
+ * All three flags matter. Priming posts but not terms would leave
+ * get_product_type() issuing a term query per product, which is a third of the
+ * problem left in place.
+ *
+ * WooCommerce has no product equivalent of
+ * WC_Order_Data_Store_CPT::prime_caches_for_orders() - checked against the
+ * 11.0 code reference, WC_Product_Data_Store_CPT has no priming method at all.
+ * Nor would the wc_product_meta_lookup table help here: that table serves the
+ * search QUERIES (price, stock), not product hydration, so priming it would
+ * warm something this loop never reads. The product object cache added in
+ * WooCommerce 10.5 is request-scoped and deduplicates repeat lookups of the
+ * same id; this loop visits each id once, so it has nothing to offer either.
+ *
+ * _prime_post_caches() carries an underscore because it was marked private
+ * before WordPress 6.1, where it became public API. Guarded anyway: if it is
+ * ever absent, hydration simply reverts to the pre-6.3 per-id behaviour rather
+ * than failing.
+ *
+ * @param int[] $ids
+ * @return void
+ */
+function ai_rest_prime_product_caches(array $ids) {
+    if (!function_exists('_prime_post_caches')) {
+        return;
+    }
+
+    $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+    if (empty($ids)) {
+        return;
+    }
+
+    _prime_post_caches($ids, true, true);
+}
+
+/**
  * Thumbnail URL at 'thumbnail' size, or null.
  *
  * For a variation this falls through to the parent image when the variation
@@ -349,7 +399,10 @@ function ai_rest_price_match_product_ids($search) {
     $target  = (float) $search;
     $matched = [];
 
-    foreach (array_slice($ids, 0, AIOC_PRODUCT_SORT_WINDOW) as $id) {
+    $candidates = array_slice($ids, 0, AIOC_PRODUCT_SORT_WINDOW);
+    ai_rest_prime_product_caches($candidates);
+
+    foreach ($candidates as $id) {
         $product = wc_get_product($id);
         if (!$product instanceof WC_Product) {
             continue;
@@ -520,7 +573,14 @@ function ai_rest_sort_product_rows(array $rows) {
 function ai_rest_rows_for_ids(array $ids, array &$seen, $picker = false) {
     $rows = [];
 
-    foreach (array_slice($ids, 0, AIOC_PRODUCT_SORT_WINDOW) as $candidate_id) {
+    $candidates = array_slice($ids, 0, AIOC_PRODUCT_SORT_WINDOW);
+
+    // The whole window in three queries, before a single wc_get_product().
+    // This loop is where the sort window costs what it costs: a broad text
+    // term hydrates every candidate so it can be sorted by price.
+    ai_rest_prime_product_caches($candidates);
+
+    foreach ($candidates as $candidate_id) {
         if (count($rows) >= AIOC_PRODUCT_SORT_WINDOW) {
             break;
         }
@@ -545,7 +605,15 @@ function ai_rest_rows_for_ids(array $ids, array &$seen, $picker = false) {
             continue;
         }
 
-        foreach ($product->get_children() as $variation_id) {
+        $children = $product->get_children();
+
+        // Same priming for a parent's variations, which are ids this loop only
+        // learns after the parent is read. UNTESTABLE in this catalogue - it
+        // has no variable products - but it is a cache warm with no behavioural
+        // effect, so it cannot change what is returned either way.
+        ai_rest_prime_product_caches($children);
+
+        foreach ($children as $variation_id) {
             if (count($rows) >= AIOC_PRODUCT_SORT_WINDOW) {
                 break 2;
             }

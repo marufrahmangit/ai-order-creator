@@ -2,6 +2,19 @@
 
 All notable changes to AI Order Creator are documented in this file.
 
+## 6.3
+
+- **Bulk-prime the post, meta and term caches before hydrating product objects.** Measured on staging at 6.2: `timing_ms` was **47ms for a numeric search but 438ms for a broad text search**. Sorting by price needs every candidate hydrated before it can be ordered, so `?search=three` turned roughly 180 candidate ids into product objects one at a time — and each `wc_get_product()` hit the database three separate ways:
+  - `WC_Product_Data_Store_CPT::read()` → `get_post()`
+  - `read_product_data()` → `get_post_meta()`
+  - `get_product_type()` → `get_the_terms( $id, 'product_type' )`, plus `read_visibility()` reading `product_visibility`
+- New `ai_rest_prime_product_caches()` calls `_prime_post_caches( $ids, true, true )` once for the whole candidate window, filling all three caches in up to three queries. The `wc_get_product()` calls that follow then read from cache. **All three flags matter**: priming posts without terms would leave a term query per product in place, which is a third of the problem untouched.
+- Applied at every loop that turns ids into objects — the price-match block, the row loop, and a variable parent's children. The children case is **untestable in this catalogue** (no variable products), but a cache warm has no behavioural effect, so it cannot change what is returned either way.
+- `_prime_post_caches()` fetches only ids not already in the cache, so priming overlapping sets — as the numeric path does, once in the price block and again in the row loop — costs almost nothing the second time.
+- **WooCommerce offers no product equivalent** of `WC_Order_Data_Store_CPT::prime_caches_for_orders()`; checked against the 11.0 code reference, `WC_Product_Data_Store_CPT` has no priming method at all. Nor would the `wc_product_meta_lookup` table help: it serves the search *queries* (price, stock), not hydration, so priming it would warm something this loop never reads. The product object cache added in WooCommerce 10.5 is request-scoped and deduplicates repeat lookups of the same id, which a single pass over distinct ids never performs.
+- The call is guarded with `function_exists()`: `_prime_post_caches()` carries an underscore because it was marked private before WordPress 6.1, where it became public API. If it is ever absent, hydration reverts to the pre-6.3 per-id behaviour rather than failing.
+- **Nothing else changed** — not the sort window, the sort order, the query structure, or any response shape. `timing_ms` is what confirms or refutes the gain.
+
 ## 6.2
 
 - **`GET /products` now orders by price ascending**, replacing the alphabetical-by-title ordering. Title order was actively wrong for this catalogue: as strings, `"10000"` sorts before `"1050"`, so `search=three` returned 1000, 10000, 1050, 1100 — putting the most expensive item near the top of every text search.

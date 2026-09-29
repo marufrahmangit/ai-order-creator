@@ -2,12 +2,13 @@
 
 Working brief for resuming this project cold. Present state only — git log is the history.
 
-Plugin header: **Order Ops v6.2**, Updated 2026-09-29. Live runs v4.9. Staging runs
-**6.1**, against which steps 3, 4 and 5 are all verified — the shell confirmed in a
-browser. **6.2 is committed but NOT uploaded**: `GET /products` ordering, compound
-terms, `fields=picker` and `timing_ms` have never run. **Upload 6.2 and verify
-`/products`, then step 6** (create/edit form with the product picker). The app is still
-served from `npm run dev`; nothing has been deployed to a subdomain yet.
+Plugin header: **Order Ops v6.3**, Updated 2026-09-29. Live runs v4.9. Staging runs
+**6.2**. Steps 3, 4 and 5 are verified against staging, the shell confirmed in a browser,
+and **CORS is fully verified in both directions**. **6.3 is committed but NOT uploaded**:
+it is a performance fix to `/products` hydration, and `timing_ms` on staging is what will
+confirm or refute it. **Upload 6.3, compare `timing_ms`, then step 6** (create/edit form
+with the product picker). The app is still served from `npm run dev`; nothing has been
+deployed to a subdomain yet.
 
 ## Goal
 
@@ -216,7 +217,13 @@ parser becomes one feature inside it, not the whole tool.
   unchanged and must stay that way — it is the verified one.
 - **`timing_ms` in the `/products` envelope** is wall-clock milliseconds inside the
   handler. It exists to answer one question when the picker feels slow: query work, or
-  network round-trip? Read it before optimising either.
+  network round-trip? Read it before optimising either. It has already earned its keep
+  once — it is what identified the 6.2 hydration cost that 6.3 fixes.
+- **Any loop that turns product ids into objects must prime the caches first**, via
+  `ai_rest_prime_product_caches()`. `wc_get_product()` reads the post, its meta AND the
+  `product_type` / `product_visibility` terms, so an unprimed loop costs three database
+  round-trips per product. This is not a micro-optimisation: at 6.2 it was the difference
+  between 47ms and 438ms. Prime the whole candidate window in one call, then loop.
 - The step 6 product picker must enforce the 3-character minimum client-side, debounce
   input at ~250–300ms, and cancel in-flight requests per keystroke so responses cannot
   arrive out of order.
@@ -243,7 +250,8 @@ parser becomes one feature inside it, not the whole tool.
 | 3a | Read endpoints — orders list, single order | done, **verified on staging** | 5.2 |
 | 3b | Read endpoints — product search | done, **verified on staging** at 5.6 | 5.3–5.6 |
 | 3c | Price-first product search + 3-char minimum | done, **verified on staging** at 5.7 | 5.7 |
-| 3d | Price-ascending ordering, compound terms, `fields=picker`, `timing_ms` | done, **not yet on staging** | 6.2 |
+| 3d | Price-ascending ordering, compound terms, `fields=picker`, `timing_ms` | done, on staging; **timings measured**, output checks not reported | 6.2 |
+| 3e | Bulk-prime post/meta/term caches before product hydration | done, **not yet on staging** | 6.3 |
 | 4a | `POST /parse` — text in, structured data out, writes nothing | done, **verified on staging** at 5.8 | 5.8 |
 | 4b | Write endpoints — create, update, trash, restore | done, **verified on staging** at 5.9 | 5.9 |
 | 4c | `GET /meta` — states, statuses, currency for the app | done, **verified on staging** at 6.1 | 6.0 |
@@ -347,6 +355,23 @@ the code below:
 The rate-limit throttle on `/token` is the one part still unexercised; it stays under
 Unverified.
 
+**CORS is verified in both directions and is no longer an open question.** A matching
+origin works from a browser (see step 5 below), and a mismatched `Origin` is refused —
+`ai_rest_cors_headers()` strips the headers that core's `rest_send_cors_headers()` would
+otherwise reflect for any origin, so no `Access-Control-Allow-Origin` comes back.
+That second half is what makes the App Origin setting a control rather than decoration.
+
+`/products` at 6.2, measured on staging:
+
+- `timing_ms` is **47ms for a numeric search** and **438ms for a broad text search**
+  (`?search=three`, roughly 180 candidates). The gap is the sort window: ordering by
+  price needs every candidate hydrated first, and at 6.2 each one was a separate
+  `wc_get_product()`. 6.3 primes the caches to fix it — unverified until uploaded.
+- The behavioural checks (ordering output, compound intersections, `fields=picker` key
+  set, default shape unchanged) were **not reported back**, so they stay under
+  Unverified. The endpoint demonstrably runs at 6.2; what it returns has not been
+  confirmed row by row.
+
 Step 5 — the PWA shell, confirmed in a browser against plugin 6.1, served from
 `npm run dev` at `http://localhost:5173` with `ai_app_origin` set to that exact origin:
 
@@ -397,22 +422,29 @@ that path does not pass through `api.js`'s `try`/`catch` around `fetch()`.
   order. **Decided: id resolution is not needed** — staff search by phone, which works
   today. Kept here rather than deleted, because the fall-through is still a latent
   surprise if anyone does type an order number into the list search.
-- **Nothing in 6.2 has run.** `/products` price ordering, compound terms,
-  `fields=picker` and `timing_ms` are all unexercised — there is no PHP binary in the
-  Claude Code environment, so the local checks were structural plus a PORT of the pure
-  logic into Python (52 assertions, all passing), which can catch a wrong rule but not a
-  PHP syntax or API error. Verify on staging:
-  `search=three` (cheapest first, 10000 last), `search=2500` (unchanged Block A then
-  Block B), `search=three 2500` and `search=2500 three` (identical intersections),
+- **What `/products` RETURNS at 6.2 is still unconfirmed**, even though the endpoint
+  runs and its timings are measured. Still to check on staging, row by row:
+  `search=three` (cheapest first, 10000 last), `search=2500` (Block A then Block B),
+  `search=three 2500` and `search=2500 three` (identical intersections),
   `search=three 2500 1000` (falls back to text), `search=three 99999` (empty, NOT
-  widened), `fields=picker` (five keys), and the default shape (nine keys, unchanged).
-- **Ordering by price costs product loads.** The rows must exist before they can be
-  sorted, so a block now builds up to `AIOC_PRODUCT_SORT_WINDOW` (500) rows where the
-  old code stopped at the caller's `limit` (~20). A broad text search can therefore load
-  25× the product objects it used to. This is the main thing `timing_ms` was added to
-  measure — check it on `search=three` before assuming it is fine. If it hurts, the fix
-  is to bulk-prime the post/meta caches for the candidate ids before the loop, not to
-  abandon the sort.
+  widened), `fields=picker` (exactly five keys), and the default shape (nine keys,
+  unchanged). There is no PHP binary in the Claude Code environment, so the only local
+  evidence is structural plus a PORT of the pure logic into Python (52 assertions), which
+  can catch a wrong rule but not a PHP syntax or API error.
+- **The 6.3 priming gain is predicted, not measured.** Expected: the text path's ~180
+  hydrations stop costing ~540 database round-trips and cost about three, so **438ms
+  should fall sharply** — somewhere in the 60–150ms range, the remainder being PHP
+  object construction rather than queries. The **numeric path should barely move from
+  47ms**: it hydrates only a handful of objects, so most of its time is the two
+  full-catalogue search queries, which 6.3 does not touch. If the text figure does not
+  drop, the cost was never in hydration and this fix is aimed at the wrong thing —
+  `timing_ms` settles it either way.
+- **Thumbnails would reintroduce a per-row lookup.** `ai_rest_product_thumbnail()` calls
+  `wp_get_attachment_image_url()`, which loads an ATTACHMENT post that priming the
+  product ids does not cover. Harmless today — every thumbnail in this store is null, so
+  no lookup happens, and `fields=picker` skips the field entirely. If images are ever
+  added, the full shape regains N attachment loads and would need a second priming pass
+  over the collected image ids.
 - **Block B's queries run even when Block A already fills the limit.** Blocks are
   resolved eagerly, so a numeric search always costs the name/SKU queries too, even when
   its price matches alone would fill the page. Kept eager because it makes the query
@@ -441,14 +473,6 @@ that path does not pass through `api.js`'s `try`/`catch` around `fetch()`.
   — deliberately, so signing in on a phone does not sign out a laptop. Expect a growing
   list under the `Order Ops (app)` prefix in the user profile, and prune it by hand
   until a revoke route exists.
-- **Only the MATCHING CORS origin has been exercised.** The success path is verified
-  (see Verified). What is still untested is the refusal path: WordPress core's
-  `rest_send_cors_headers()` reflects any `Origin` API-wide, and
-  `ai_rest_cors_headers()` is supposed to strip those headers for `aioc/v1` routes when
-  `ai_app_origin` is empty or does not match. Nobody has sent a mismatched `Origin` and
-  checked that no `Access-Control-Allow-Origin` comes back. That is the half that makes
-  the setting a control rather than decoration, and it is one curl with an `-H 'Origin:
-  https://example.com'` away.
 - Claude Code's environment has no php binary and no WooCommerce source, so nothing is
   linted or run there. Local checks are structural or simulated only; behaviour must be
   confirmed by curl against staging, as was done for steps 3a and 3b.
