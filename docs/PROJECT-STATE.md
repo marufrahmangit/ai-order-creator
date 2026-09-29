@@ -3,9 +3,10 @@
 Working brief for resuming this project cold. Present state only — git log is the history.
 
 Plugin header: **Order Ops v6.1**, Updated 2026-09-28. Live runs v4.9. Staging runs
-**6.1**, and **the entire API layer is verified against it** — steps 3 and 4 complete,
-including `GET /meta` and `POST /token`. **No API gate remains.** **Step 5 (the PWA
-shell) is the work in hand**, the first outside this plugin.
+**6.1**. **The API layer and the PWA shell are both verified against it** — steps 3, 4
+and 5 are done, the shell confirmed in a browser. **Step 6 (create/edit form with the
+product picker) is next.** The app is still served from `npm run dev`; nothing has been
+deployed to a subdomain yet.
 
 ## Goal
 
@@ -119,6 +120,12 @@ parser becomes one feature inside it, not the whole tool.
   here. Logout is local-only: it forgets the credential without revoking it, so a
   revoke-on-logout route is still owed - the `uuid` in the `/token` response exists for
   that.
+- **The app stays vanilla ES modules. No framework.** React was considered for step 6's
+  product picker and rejected: `views/orders.js` already implements the debounce and
+  per-keystroke request cancellation the picker needs, and both are now verified working
+  in a browser. Converting would throw away verified code to buy nothing the picker is
+  short of. Revisit only if a screen appears that genuinely needs shared reactive state,
+  not merely because a list is involved.
 - The PWA lives in **`app/` in this repo**, built with **Vite** (Node toolchain).
   Superseded the initial no-bundler plan on 2026-09-28, before any app code existed.
   Deploy is the built output, not the source tree, so `app/dist/` is what reaches the
@@ -212,7 +219,7 @@ parser becomes one feature inside it, not the whole tool.
 | 4b | Write endpoints — create, update, trash, restore | done, **verified on staging** at 5.9 | 5.9 |
 | 4c | `GET /meta` — states, statuses, currency for the app | done, **verified on staging** at 6.1 | 6.0 |
 | 4d | `POST /token` — login; account password → app password | done, **verified on staging** at 6.1 | 6.1 |
-| 5 | PWA shell — subdomain, auth, order list | built, **unverified against staging in a browser** | — |
+| 5 | PWA shell — subdomain, auth, order list | auth + list done, **verified in a browser** against 6.1; **subdomain not yet stood up** | — |
 | 6 | Create/edit form with product picker | not started | — |
 | 7 | Manifest, service worker, install prompt | not started | — |
 
@@ -308,6 +315,34 @@ the code below:
 The rate-limit throttle on `/token` is the one part still unexercised; it stays under
 Unverified.
 
+Step 5 — the PWA shell, confirmed in a browser against plugin 6.1, served from
+`npm run dev` at `http://localhost:5173` with `ai_app_origin` set to that exact origin:
+
+- **CORS worked on first contact.** Every `OPTIONS` preflight returned 200 and every
+  authenticated request succeeded. This is the first exercise of
+  `ai_rest_cors_headers()`, its `OPTIONS` short-circuit, and the exact-origin match —
+  all three had only ever been reasoned about. It also confirms the app needs no
+  cookies: `credentials: 'omit'` plus Basic auth is sufficient, so
+  `rest_cookie_invalid_nonce` never arises.
+- **`POST /token` over `fetch` returned 201 and the login flow completed.** The minted
+  application password persisted in `localStorage` and authenticated the requests that
+  followed — the same exchange curl proved, now proved through a browser.
+- `GET /meta` is fetched once after login and reused for the session, not per screen.
+- `GET /orders` renders with money formatted from `/meta`'s `currency` and
+  `price_decimals`, the status filter works (checked with `on-hold` and `pending`),
+  pagination works, and search debounces with `AbortController` cancelling the
+  in-flight request per keystroke.
+
+**Debugging note — a caught `AbortError` per keystroke is correct.** The cancellation
+pattern means every superseded search rejects with an `AbortError`, which
+`views/orders.js` catches and deliberately ignores. With Chrome devtools' "Pause on
+caught exceptions" enabled, execution halts at `pending?.abort()` and looks like a bug.
+It is not one. Confirmed by test, not just by reading: an abort throws a `DOMException`
+named `AbortError` that is not an `ApiError` and is discarded, while a genuine HTTP
+failure throws an `ApiError` whose message is shown and a transport failure throws one
+with `isNetwork` set. Aborting mid-body-read behaves the same way, which matters because
+that path does not pass through `api.js`'s `try`/`catch` around `fetch()`.
+
 ## Unverified / open
 
 - **Untestable in this catalogue** (no variable products), relevant only if any are
@@ -345,26 +380,14 @@ Unverified.
   — deliberately, so signing in on a phone does not sign out a laptop. Expect a growing
   list under the `Order Ops (app)` prefix in the user profile, and prune it by hand
   until a revoke route exists.
-- **The step 5 shell has never spoken to staging.** It builds (Vite 7.3.6, 11.4 kB of
-  JS) and the dev server serves it on 5173, but no request has been made from a
-  browser: the login screen, `/token` from `fetch`, the order list, the status filter,
-  pagination and money formatting are all unexercised end to end. First run is
-  `npm run dev` in `app/` with `ai_app_origin` set to `http://localhost:5173`. Expect
-  the first failure to be CORS, not code.
-- **CORS has still never been exercised.** Every verification so far was curl, which
-  sends no `Origin` header, so `ai_rest_cors_headers()` — the origin match, the
-  header-stripping mismatch path and the `OPTIONS` preflight short-circuit — remains
-  untested. The first real test is the step 5 shell in a browser against
-  `ai_app_origin = http://localhost:5173`. `/token` needs it too: being unauthenticated
-  does not exempt it, and a browser preflights it because of the JSON content type.
-  The app's fetches must NOT send cookies (no `credentials: 'include'`): if WordPress
-  sees a logged-in auth cookie on a REST request without a nonce,
-  `rest_cookie_check_errors()` rejects it with `rest_cookie_invalid_nonce` — a 403 that
-  looks like a permissions bug and is not one. Basic auth is the only credential the
-  app should ever send.
-- WordPress core's `rest_send_cors_headers()` reflects any Origin API-wide.
-  `ai_rest_cors_headers()` strips those headers for `aioc/v1` routes when the
-  configured origin is empty or mismatched. Untested.
+- **Only the MATCHING CORS origin has been exercised.** The success path is verified
+  (see Verified). What is still untested is the refusal path: WordPress core's
+  `rest_send_cors_headers()` reflects any `Origin` API-wide, and
+  `ai_rest_cors_headers()` is supposed to strip those headers for `aioc/v1` routes when
+  `ai_app_origin` is empty or does not match. Nobody has sent a mismatched `Origin` and
+  checked that no `Access-Control-Allow-Origin` comes back. That is the half that makes
+  the setting a control rather than decoration, and it is one curl with an `-H 'Origin:
+  https://example.com'` away.
 - Claude Code's environment has no php binary and no WooCommerce source, so nothing is
   linted or run there. Local checks are structural or simulated only; behaviour must be
   confirmed by curl against staging, as was done for steps 3a and 3b.
