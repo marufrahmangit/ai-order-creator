@@ -2,11 +2,12 @@
 
 Working brief for resuming this project cold. Present state only — git log is the history.
 
-Plugin header: **Order Ops v6.1**, Updated 2026-09-28. Live runs v4.9. Staging runs
-**6.1**. **The API layer and the PWA shell are both verified against it** — steps 3, 4
-and 5 are done, the shell confirmed in a browser. **Step 6 (create/edit form with the
-product picker) is next.** The app is still served from `npm run dev`; nothing has been
-deployed to a subdomain yet.
+Plugin header: **Order Ops v6.2**, Updated 2026-09-29. Live runs v4.9. Staging runs
+**6.1**, against which steps 3, 4 and 5 are all verified — the shell confirmed in a
+browser. **6.2 is committed but NOT uploaded**: `GET /products` ordering, compound
+terms, `fields=picker` and `timing_ms` have never run. **Upload 6.2 and verify
+`/products`, then step 6** (create/edit form with the product picker). The app is still
+served from `npm run dev`; nothing has been deployed to a subdomain yet.
 
 ## Goal
 
@@ -88,6 +89,11 @@ parser becomes one feature inside it, not the whole tool.
   `ai_rest_validate_*` wrappers in `rest.php`; `grep "_callback'.*=> '" | grep -v ai_`
   must stay empty.
 - Logic files produce no output. Presentation lives in `admin/views/`.
+- App tests: `npm test` in `app/`. No dependencies, no browser — it runs the real
+  `src/api.js` against a throwaway localhost server. Currently one file,
+  `app/test/api-abort.test.mjs`, pinning the abort-versus-real-failure contract the
+  order list depends on. There is no PHP test harness; the plugin is still verified by
+  curl against staging.
 - App layout (`app/src/`): `api.js` is the ONLY module that calls `fetch` — one place
   where auth, CORS, error shape and abort handling live. `auth.js` owns the stored
   credential, `meta.js` the session-cached `/meta`, `format.js` money and dates,
@@ -185,10 +191,32 @@ parser becomes one feature inside it, not the whole tool.
 - Out-of-stock products are returned to the client with `is_in_stock` false, not
   filtered out. The picker greys them and blocks adding. Write endpoints must re-check
   stock independently.
-- Staff search products by PRICE, not by name — they type "2500" to find the item
-  costing 2500. `/products` matches a numeric term against the real price first, then
-  name/SKU. Do not rely on this catalogue's names happening to embed the price; that is
-  incidental, not a property of the data.
+- Staff search products by PRICE and by NAME in roughly equal measure, so both paths
+  have to be usable. `/products` matches a numeric term against the real price first,
+  then name/SKU. Do not rely on this catalogue's names happening to embed the price;
+  that is incidental, not a property of the data.
+- **Results are ordered by effective price ascending, then by name.** Title order was
+  the default until 6.2 and was actively wrong here: as strings `"10000"` sorts before
+  `"1050"`, so the dearest item sat near the top of every text search. The name
+  tiebreaker uses a NATURAL comparison for the same reason. Rows with no price at all
+  sort last. **The sort applies within each block, never across them** — Block A (exact
+  price matches) stays ahead of Block B (name/SKU), and the exact-SKU row leads
+  everything.
+- **A compound term is an INTERSECTION, and an empty intersection returns an empty
+  list.** One numeric part plus at least one text part means "called this AND costing
+  that"; word order is irrelevant. Two or more numeric parts fall back to plain text
+  rather than guessing. There is deliberately NO widening fallback: a staff member who
+  gets nothing retypes, whereas one who gets a silently broadened list has to notice
+  that the rows do not answer the question. The 3-character minimum is on the whole
+  trimmed term, not each part.
+- **`fields=picker` trims the row to `id`, `name`, `sku`, `price`, `is_in_stock`.** The
+  picker reads nothing else, and this store's thumbnails are all null. It also skips the
+  per-row attachment lookup, so it is cheaper server-side and not only on the wire. Any
+  unrecognised value yields the full row rather than a 400. The default shape is
+  unchanged and must stay that way — it is the verified one.
+- **`timing_ms` in the `/products` envelope** is wall-clock milliseconds inside the
+  handler. It exists to answer one question when the picker feels slow: query work, or
+  network round-trip? Read it before optimising either.
 - The step 6 product picker must enforce the 3-character minimum client-side, debounce
   input at ~250–300ms, and cancel in-flight requests per keystroke so responses cannot
   arrive out of order.
@@ -215,6 +243,7 @@ parser becomes one feature inside it, not the whole tool.
 | 3a | Read endpoints — orders list, single order | done, **verified on staging** | 5.2 |
 | 3b | Read endpoints — product search | done, **verified on staging** at 5.6 | 5.3–5.6 |
 | 3c | Price-first product search + 3-char minimum | done, **verified on staging** at 5.7 | 5.7 |
+| 3d | Price-ascending ordering, compound terms, `fields=picker`, `timing_ms` | done, **not yet on staging** | 6.2 |
 | 4a | `POST /parse` — text in, structured data out, writes nothing | done, **verified on staging** at 5.8 | 5.8 |
 | 4b | Write endpoints — create, update, trash, restore | done, **verified on staging** at 5.9 | 5.9 |
 | 4c | `GET /meta` — states, statuses, currency for the app | done, **verified on staging** at 6.1 | 6.0 |
@@ -242,7 +271,10 @@ because it defaults to `$override = false`:
 - `GET  /aioc/v1/ping` — `includes/rest/rest.php`
 - `GET  /aioc/v1/orders` — `includes/rest/routes/orders.php`
 - `GET  /aioc/v1/orders/{id}` — `includes/rest/routes/orders.php`
-- `GET  /aioc/v1/products` — `includes/rest/routes/products.php`
+- `GET  /aioc/v1/products?search=&limit=&fields=` — `includes/rest/routes/products.php`.
+  `search` is required, 3-character minimum on the whole term. `limit` defaults to 20
+  and clamps to 50. `fields=picker` trims the row; anything else gives the full nine
+  fields. The envelope carries `products` and `timing_ms`.
 - `GET  /aioc/v1/meta` — `includes/rest/routes/meta.php` (states, statuses, currency)
 - `POST /aioc/v1/token` — `includes/rest/routes/token.php`. **The only unauthenticated
   route.** Username + password in, a newly minted application password out (201).
@@ -351,18 +383,47 @@ that path does not pass through `api.js`'s `try`/`catch` around `fetch()`.
   missed; and variation-level SKUs are findable only by exact match via
   `wc_get_product_id_by_sku()`, the parent-first search never reaching a partial one.
   Parent/simple SKU partial matching IS verified.
-- **No relevance ranking for TEXT product searches.** Results come back sorted by name
-  (`orderby => title`), so a broad term like "three" returns dozens of near-identical
-  rows — this catalogue has one product per price point — and the intended item is often
-  outside the first 20. 5.7's price-first ordering is verified and fixes this for wholly
-  numeric terms, but does nothing for text terms. Ranking for those is an unresolved
-  design question and belongs to **step 6**, with the picker.
+- ~~No relevance ranking for TEXT product searches.~~ **Resolved in 6.2** by ordering
+  results by price ascending rather than by title, and by compound terms, which let a
+  staff member narrow "three" to "three 2500" instead of scrolling. There is still no
+  relevance *scoring* — a text term's matches are ordered by price, not by how well they
+  match — and that is now a deliberate choice rather than an open question: price is the
+  axis staff think in, and this catalogue has one product per price point, so price
+  ordering is effectively a stable, meaningful sort. Revisit only if a catalogue with
+  several products at one price appears.
 - **`GET /orders?search=` does not resolve order ids.** It handles phone and customer
   name only. A numeric term that is not a valid BD mobile falls through to the name
   search, so typing an order number returns unrelated name matches rather than that
   order. **Decided: id resolution is not needed** — staff search by phone, which works
   today. Kept here rather than deleted, because the fall-through is still a latent
   surprise if anyone does type an order number into the list search.
+- **Nothing in 6.2 has run.** `/products` price ordering, compound terms,
+  `fields=picker` and `timing_ms` are all unexercised — there is no PHP binary in the
+  Claude Code environment, so the local checks were structural plus a PORT of the pure
+  logic into Python (52 assertions, all passing), which can catch a wrong rule but not a
+  PHP syntax or API error. Verify on staging:
+  `search=three` (cheapest first, 10000 last), `search=2500` (unchanged Block A then
+  Block B), `search=three 2500` and `search=2500 three` (identical intersections),
+  `search=three 2500 1000` (falls back to text), `search=three 99999` (empty, NOT
+  widened), `fields=picker` (five keys), and the default shape (nine keys, unchanged).
+- **Ordering by price costs product loads.** The rows must exist before they can be
+  sorted, so a block now builds up to `AIOC_PRODUCT_SORT_WINDOW` (500) rows where the
+  old code stopped at the caller's `limit` (~20). A broad text search can therefore load
+  25× the product objects it used to. This is the main thing `timing_ms` was added to
+  measure — check it on `search=three` before assuming it is fine. If it hurts, the fix
+  is to bulk-prime the post/meta caches for the candidate ids before the loop, not to
+  abandon the sort.
+- **Block B's queries run even when Block A already fills the limit.** Blocks are
+  resolved eagerly, so a numeric search always costs the name/SKU queries too, even when
+  its price matches alone would fill the page. Kept eager because it makes the query
+  count per path fixed and predictable; making it lazy is a safe, unobservable
+  optimisation if the extra query ever shows up in `timing_ms`.
+- **`/products` query counts**, by static reading of 6.2 (SQL-issuing calls, excluding
+  per-product object loads): plain text **3** (1 exact-SKU lookup + 2 name/SKU);
+  plain numeric **4** (1 + 1 price + 2 name/SKU); compound with one text part **3**
+  (no SKU lookup + 1 price + 2), rising by 2 per extra text part, and collapsing to
+  **1** when the price part matches nothing, because the intersection short-circuits.
+  So compound costs no more than the numeric path — one fewer, in fact.
 - **The `/token` rate limit has never been exercised.** The happy path is verified;
   the throttle is not. Untested: that 5 wrong passwords for one username produce a 429
   with `Retry-After`; that a 6th attempt under a *different* username from the same IP

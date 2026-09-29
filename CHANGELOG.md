@@ -2,6 +2,24 @@
 
 All notable changes to AI Order Creator are documented in this file.
 
+## 6.2
+
+- **`GET /products` now orders by price ascending**, replacing the alphabetical-by-title ordering. Title order was actively wrong for this catalogue: as strings, `"10000"` sorts before `"1050"`, so `search=three` returned 1000, 10000, 1050, 1100 — putting the most expensive item near the top of every text search.
+- Rows sort by effective price, then by name as a tiebreaker. The name comparison is natural rather than byte-wise (`strnatcasecmp`), so embedded figures order numerically there too — the same defect, one level down.
+- The sort applies **within each block, never across them**: Block A (exact price matches) still precedes Block B (name/SKU), so an exact price match is never pushed below a cheaper substring match. The exact-SKU row still leads everything.
+- A product saved with no price sorts *after* every priced row, rather than being treated as 0 and heading every list.
+- **Compound terms.** A term with exactly one numeric part and at least one non-numeric part returns the **intersection**: `three 2500` means products whose name or SKU contains "three" AND whose effective price is 2500. Word order is irrelevant — `2500 three` parses identically.
+  - Two or more numeric parts (`three 2500 1000`) fall back to treating the whole term as text rather than guessing which figure is the price.
+  - Several text parts alongside one number (`batik gauze 250`) must match *all* the text parts and the price.
+  - An empty intersection returns an empty list. There is deliberately no fallback to a broader search: an empty result is the honest answer, and a silently widened list forces the staff member to notice the rows do not match what they asked for.
+  - The 3-character minimum applies to the whole trimmed term, not to each part.
+  - The exact-SKU lookup is skipped for compound terms — no SKU realistically equals a phrase plus a figure, and a row admitted that way would sit outside the intersection, breaking the empty-means-empty rule.
+- **Optional `fields=picker`** returns only `id`, `name`, `sku`, `price` and `is_in_stock`, omitting `parent_id`, `stock_status`, `stock_quantity` and `thumbnail`. It also skips the per-row attachment lookup `thumbnail` requires, for a field that is null throughout this store. Any other value — including a misspelling — yields the full row rather than a 400, in keeping with this namespace clamping rather than rejecting. **The default shape is unchanged**, byte for byte.
+- **Added `timing_ms`** to the envelope: wall-clock milliseconds inside the handler, measured from entry to just before the response is built, present in both shapes. It exists to tell query work apart from network round-trip when the picker feels slow on mobile data.
+- Replaced `ai_rest_product_search_ids()` with `ai_rest_product_search_blocks()`, which returns the blocks separately instead of flattening them — a flattened list cannot be sorted per block. Term parsing and the intersection are isolated in `ai_rest_parse_search_term()` and `ai_rest_compound_search_ids()`, matching how `ai_rest_price_match_product_ids()` was already kept apart. `ai_rest_product_search_ids()` had no callers outside this file.
+- Ordering by price means the rows have to exist before they can be sorted, so row building is now bounded by a new `AIOC_PRODUCT_SORT_WINDOW` (500) per block rather than stopping at the caller's `limit`. A term matching more candidates than that is sorted within the first 500 in title order — bounded, deliberate, and the same cap `ai_rest_price_match_product_ids()` already used. **The cost is real**: a broad text search now loads up to 500 product objects where it previously loaded about 20. `timing_ms` is what will show whether that matters.
+- No raw SQL, the `{"products": [...]}` envelope key is unchanged, and the publish+private product / publish-only variation status rules are untouched.
+
 ## 6.1
 
 - Added `POST /aioc/v1/token`, the login endpoint. Staff sign in with the ordinary WordPress username and password they already know; the app never asks anyone to find or paste an application password.
