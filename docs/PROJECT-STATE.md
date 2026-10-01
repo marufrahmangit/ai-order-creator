@@ -109,6 +109,15 @@ parser becomes one feature inside it, not the whole tool.
   credential, `meta.js` the session-cached `/meta`, `format.js` money and dates,
   `dom.js` node building, `views/` one file per screen. Views never call `fetch`
   directly.
+- **An order is fetched exactly once, on entering the edit view.** Both write routes
+  return the full order object, so a save re-renders from the response body and a parse
+  changes nothing server-side — neither needs a follow-up `GET`. `main.js` holds a
+  route key so a repeat tap on the same target cannot mount a second copy of a screen
+  and repeat its load, and cancels the previous screen's READS on navigation.
+  **Writes are never given that abort signal**: aborting a `POST` after the server has
+  committed loses the response while keeping the change, and for `POST /orders` that
+  means losing the new order's id — the natural reaction, trying again, would create a
+  second order.
 - The order form re-renders only its dynamic parts — the items list, the totals, the
   warnings — and never the field inputs. Rebuilding an input while someone is typing in
   it loses their caret and, on a phone, closes the keyboard. Field values are written
@@ -191,6 +200,23 @@ parser becomes one feature inside it, not the whole tool.
   it would display a confidently wrong name and price. The server resolves the id on
   save, the re-render fills in the real values, and a non-existent id comes back as a
   warning with the line skipped.
+- **The line total is editable, and every line sends its `total` on save.** WooCommerce's
+  own order editor allows it and the API has always supported a per-line `total`, so the
+  form exposes it as a numeric input rather than read-only text. A line is *overridden*
+  when the user types a figure, or when the stored total arrives differing from price ×
+  quantity (a coupon, a discount, an earlier manual edit). **An overridden line is never
+  recomputed** — a stepper tap must not silently discard a figure someone chose on
+  purpose — while a derived line follows the quantity as expected. Clearing the field
+  returns the line to price × quantity, which is the way out of an override.
+  - Sending `total` for **every** line is what closes a real data-loss path: `line_items`
+    is replace-all, so a line sent without a total is re-priced from the catalogue, and
+    omitting it meant that touching the items at all discarded any stored override. The
+    only line that cannot carry one is a stopgap row added by id whose price is unknown
+    client-side; there the key is omitted so the server prices it. Sending `0` would be
+    far worse than omitting — it would zero the line.
+  - Typed figures are normalized on blur, never mid-entry, and tolerate spaces and
+    thousands separators, because "1,500" is how the amount actually gets typed and
+    `Number()` makes `NaN` of it.
 - **The API reports no order-level subtotal** — only per-line `subtotal`/`total` and the
   order `total` — so the form sums the line totals itself for the "Items" figure. It
   does not compute shipping or invent an order total: while nothing has been edited
@@ -480,16 +506,11 @@ that path does not pass through `api.js`'s `try`/`catch` around `fetch()`.
   or sends matches what the PHP emits and accepts — but no request has been made. Unseen
   end to end: paste-and-parse populating the fields, the district and status selects
   against real `/meta` data, loading an existing order, the quantity stepper, partial
-  update actually leaving untouched fields alone, create, and trash. Verify against
+  update actually leaving untouched fields alone, create, and trash. Also unverified:
+  that an edited line total round-trips — type a figure, save, and confirm the returned
+  order carries it rather than the catalogue price — and that an overridden line
+  survives a quantity change. Verify against
   staging with `ai_app_origin` at `http://localhost:5173`.
-- **Editing line items DISCARDS any per-line price override or discount.** The payload
-  carries only `product_id` and `quantity`, and `line_items` is replace-all, so the
-  server re-prices every line from the catalogue. An order whose stored line total came
-  from a coupon, a discount or a manual wp-admin edit loses that figure the moment the
-  items are touched in the app. The form shows the stored total until the quantity
-  changes, so it is visible beforehand — but it is not preserved. Untouched items are
-  safe, because the key is then omitted entirely. Sending the per-line `total` the API
-  already supports would fix it; that is a deliberate open question, not an oversight.
 - **Restore is not reachable from the app.** Trashed orders are excluded from
   `GET /orders`, so there is no route to a trashed order and nowhere to put a restore
   action. `POST /orders/{id}/restore` exists and is verified; the app simply cannot

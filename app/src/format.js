@@ -53,6 +53,22 @@ export function formatMoney(value) {
 }
 
 /**
+ * A bare numeric string at the store's decimal places, with no currency symbol
+ * and no grouping - for INPUT fields and for the API, which wants money as a
+ * raw numeric string. formatMoney() is for display; this is not.
+ *
+ * @param {string|number} value
+ * @returns {string} '' when the value is not a finite number.
+ */
+export function formatAmount(value) {
+  const meta = getMeta()
+  const decimals = Number.isInteger(meta?.priceDecimals) ? meta.priceDecimals : 2
+
+  const amount = Number(value)
+  return Number.isFinite(amount) ? amount.toFixed(decimals) : ''
+}
+
+/**
  * Order dates arrive as ISO 8601 (DATE_ATOM) or null.
  *
  * @param {string|null} iso

@@ -537,8 +537,28 @@ button {
   gap: 12px;
 }
 
-.item-total {
+/* The line total is an editable field, as wp-admin's order editor allows.
+   Right-aligned and tabular so a column of them reads as figures. */
+.item-total-field {
+  flex: 0 0 auto;
+}
+
+.item-total-input {
+  width: 110px;
+  min-height: var(--tap);
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  color: var(--ink);
   font-weight: 700;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.item-total-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 /* The most-tapped control on the screen, so the buttons are square and

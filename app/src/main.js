@@ -19,6 +19,33 @@ import { el, clear } from './dom.js'
 
 const root = document.getElementById('app')
 
+/**
+ * The screen currently shown or being navigated to, e.g. 'form:412'.
+ *
+ * A second tap on the same target must not mount a second copy of the screen
+ * and repeat its load. That is easy to do on a phone, and far easier when the
+ * first request is slow - which is exactly when it happens.
+ */
+let route = null
+
+/**
+ * Abort controller for the current screen's READ requests.
+ *
+ * Writes are deliberately NOT given this signal. Aborting a POST after the
+ * server has already committed loses the response while keeping the change:
+ * for POST /orders that means losing the new order's id, and the natural
+ * reaction - try again - creates a second order. A read is safe to abandon; a
+ * write is not.
+ */
+let reads = null
+
+function beginScreen(key) {
+  route = key
+  reads?.abort()
+  reads = new AbortController()
+  return reads.signal
+}
+
 function mount(view) {
   clear(root)
   root.append(view)
@@ -44,6 +71,7 @@ function showSetupNeeded() {
 }
 
 function showLogin() {
+  beginScreen('login')
   mount(LoginView({ onSignedIn: showOrders }))
 }
 
@@ -57,6 +85,7 @@ function signOut() {
   clearCredential()
   // A different user must not inherit the previous one's cached lists.
   clearMeta()
+  route = null
   showLogin()
 }
 
@@ -100,6 +129,11 @@ async function withMeta(render) {
 }
 
 function showOrders() {
+  // Not guarded on the route: returning to the list after a save or a trash
+  // has to re-render it, or a stale row stays on screen. The list manages its
+  // own in-flight request per keystroke.
+  beginScreen('orders')
+
   withMeta(() => mount(OrdersView({
     onSignOut: signOut,
     onOpenOrder: showOrderForm,
@@ -113,12 +147,22 @@ function showOrders() {
  * Closing always returns to the list and reloads it, so a saved change or a
  * trashed order is reflected rather than leaving a stale row on screen.
  *
+ * The order is fetched exactly once, here, on entering the view. Saving
+ * re-renders from the write response, and parsing changes nothing
+ * server-side, so neither needs a follow-up GET.
+ *
  * @param {number|null} orderId
  */
 function showOrderForm(orderId) {
+  const key = `form:${orderId ?? 'new'}`
+  if (key === route) return
+
+  const signal = beginScreen(key)
+
   withMeta(() => mount(OrderFormView({
     orderId: orderId ?? null,
     onClose: showOrders,
+    signal,
   })))
 }
 

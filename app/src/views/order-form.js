@@ -17,7 +17,7 @@
 
 import { fetchOrder, parseText, createOrder, updateOrder, trashOrder } from '../api.js'
 import { districts, orderStatuses } from '../meta.js'
-import { formatMoney } from '../format.js'
+import { formatMoney, formatAmount } from '../format.js'
 import { el, clear } from '../dom.js'
 
 /** Every field whose dirty state is tracked, in payload-key form. */
@@ -31,9 +31,26 @@ function toNumber(value) {
 }
 
 /**
- * @param {{ orderId: number|null, onClose: () => void }} options
+ * A figure typed by a person, which is not the same thing as a numeric string.
+ *
+ * Spaces and thousands separators are stripped, because "1,500" is how the
+ * amount gets typed and Number() would make NaN of it - the edit would then be
+ * silently ignored, which is the worst of the available behaviours. The comma
+ * is unambiguous here: this store's currency is BDT, where it groups
+ * thousands rather than marking decimals.
+ *
+ * @param {string} text
+ * @returns {number|null}
  */
-export function OrderFormView({ orderId, onClose }) {
+function parseTypedAmount(text) {
+  const cleaned = String(text).replace(/[\s,]/g, '')
+  return toNumber(cleaned)
+}
+
+/**
+ * @param {{ orderId: number|null, onClose: () => void, signal?: AbortSignal }} options
+ */
+export function OrderFormView({ orderId, onClose, signal }) {
   const state = {
     orderId: orderId ?? null,
     /** Fields the user has actually changed. Drives the partial update. */
@@ -188,36 +205,43 @@ export function OrderFormView({ orderId, onClose }) {
    * `unitPrice` is derived from the line SUBTOTAL divided by quantity, because
    * the API reports per-line figures, not a unit price.
    *
-   * `storedTotal` is the line's `total`. It can differ from unitPrice x
-   * quantity - a coupon, a discount, or a per-line override applied in
-   * wp-admin. THIS IS THE ONE PLACE CLIENT AND SERVER CAN DISAGREE. While the
-   * quantity is untouched the stored figure is shown as-is, because it is the
-   * truth for that line; as soon as the quantity changes it cannot be, so the
-   * row falls back to unitPrice x quantity.
+   * `total` is the line's own figure and is EDITABLE, the way wp-admin's order
+   * editor allows. `overridden` records that the figure is deliberate rather
+   * than derived - either because the user typed it, or because the stored
+   * total arrived differing from price x quantity (a coupon, a discount, an
+   * earlier manual edit).
    *
-   * Note what that implies on save: the payload carries only product_id and
-   * quantity, so the server re-prices every line from the catalogue. Touching
-   * the items on an order that had an override therefore DISCARDS that
-   * override. Recorded as an open item in docs/PROJECT-STATE.md.
+   * An overridden line is never recomputed. A stepper tap must not silently
+   * throw away a figure someone chose on purpose; a non-overridden line
+   * recomputes from price x quantity as you would expect.
+   *
+   * Every line sends its `total` on save, so none of this is lost in the
+   * round trip - see lineItemsPayload().
    */
   function makeItem({ product_id, name, unitPrice, quantity, storedTotal }) {
+    const safeQuantity = Math.max(1, quantity || 1)
+    const computed = unitPrice === null ? null : unitPrice * safeQuantity
+
+    // A stored figure that does not match price x quantity is an override by
+    // definition: something other than this form put it there.
+    const overridden = storedTotal !== null
+      && (computed === null || Math.abs(storedTotal - computed) >= 0.005)
+
+    const total = storedTotal !== null ? storedTotal : computed
+
     return {
       product_id,
       name,
       unitPrice,
-      quantity: Math.max(1, quantity || 1),
-      storedTotal,
-      /** Cleared the moment the quantity changes. */
-      useStoredTotal: storedTotal !== null && unitPrice !== null
-        && Math.abs(storedTotal - unitPrice * Math.max(1, quantity || 1)) >= 0.005,
+      quantity: safeQuantity,
+      total,
+      overridden,
     }
   }
 
-  /** The figure to show for a row, or null when the price is not known yet. */
+  /** The figure to show and send for a row, or null when the price is unknown. */
   function lineTotal(item) {
-    if (item.useStoredTotal) return item.storedTotal
-    if (item.unitPrice === null) return null
-    return item.unitPrice * item.quantity
+    return item.total
   }
 
   function setQuantity(item, quantity) {
@@ -225,12 +249,63 @@ export function OrderFormView({ orderId, onClose }) {
     if (next === item.quantity) return
 
     item.quantity = next
-    // Past this point the stored line total cannot describe the line.
-    item.useStoredTotal = false
+
+    // Only a derived total follows the quantity. An override is the user's
+    // figure and stays put.
+    if (!item.overridden && item.unitPrice !== null) {
+      item.total = item.unitPrice * next
+    }
+
     state.itemsDirty = true
 
     renderItems()
     renderTotals()
+  }
+
+  /**
+   * Called while the user types in a line total.
+   *
+   * The text is left exactly as typed - no reformatting mid-entry, which would
+   * fight the caret and make "1" impossible to turn into "10". Only the parsed
+   * value and the order total are updated here; the input is normalized on
+   * blur.
+   */
+  function onTotalInput(item, rawText) {
+    item.overridden = true
+    state.itemsDirty = true
+
+    const parsed = parseTypedAmount(rawText)
+    if (parsed !== null) {
+      item.total = parsed
+      renderTotals()
+    }
+  }
+
+  /**
+   * Called when a line total loses focus: settle on a figure and show it
+   * canonically.
+   *
+   * Emptying the field is how a line goes back to being derived, which is the
+   * only way out of an override short of retyping the computed figure.
+   *
+   * @returns {string} The text the input should now display.
+   */
+  function onTotalBlur(item, rawText) {
+    const text = rawText.trim()
+
+    if (text === '') {
+      item.overridden = false
+      item.total = item.unitPrice === null ? null : item.unitPrice * item.quantity
+    } else {
+      const parsed = parseTypedAmount(text)
+      // Unparseable input falls back to whatever the line already held rather
+      // than becoming 0 - a typo must not quietly zero a line.
+      if (parsed !== null) item.total = parsed
+    }
+
+    renderTotals()
+
+    return item.total === null ? '' : formatAmount(item.total)
   }
 
   function removeItem(item) {
@@ -277,6 +352,36 @@ export function OrderFormView({ orderId, onClose }) {
         onClick: () => setQuantity(item, item.quantity + 1),
       })
 
+      const overrideHint = el('p', {
+        class: 'field-hint',
+        hidden: !item.overridden,
+        text: 'Edited total — quantity changes will not recalculate it. Clear the field to go back to price × quantity.',
+      })
+
+      // Editable, as wp-admin's order editor allows. type=text with a numeric
+      // inputmode rather than type=number: a number input rejects a partially
+      // typed value in some browsers and brings spinners nobody wants on a
+      // phone, while inputmode still gets the numeric keypad.
+      const totalInput = el('input', {
+        type: 'text',
+        inputmode: 'decimal',
+        class: 'item-total-input',
+        value: total === null ? '' : formatAmount(total),
+        placeholder: total === null ? 'Set on save' : '',
+        'aria-label': `Line total for ${item.name}`,
+        onInput: (event) => {
+          onTotalInput(item, event.target.value)
+          overrideHint.hidden = false
+        },
+        onBlur: (event) => {
+          // Writing straight to the input rather than re-rendering the row:
+          // renderItems() would rebuild this node and, on a phone, drop the
+          // keyboard the user may still be moving through the form with.
+          event.target.value = onTotalBlur(item, event.target.value)
+          overrideHint.hidden = !item.overridden
+        },
+      })
+
       itemsList.append(el('article', { class: 'item-row' }, [
         el('div', { class: 'item-head' }, [
           el('p', { class: 'item-name', text: item.name }),
@@ -293,11 +398,9 @@ export function OrderFormView({ orderId, onClose }) {
           : `${formatMoney(item.unitPrice)} each` }),
         el('div', { class: 'item-foot' }, [
           el('div', { class: 'qty-stepper' }, [minus, quantityValue, plus]),
-          el('span', { class: 'item-total', text: total === null ? '—' : formatMoney(total) }),
+          el('div', { class: 'item-total-field' }, [totalInput]),
         ]),
-        item.useStoredTotal
-          ? el('p', { class: 'field-hint', text: 'Stored line total differs from price × quantity; kept as stored until you change the quantity.' })
-          : null,
+        overrideHint,
       ]))
     }
   }
@@ -493,12 +596,35 @@ export function OrderFormView({ orderId, onClose }) {
       : (state.orderId === null ? 'Save order' : 'Save changes')
   }
 
-  /** line_items for the payload. Only product_id and quantity - see makeItem(). */
+  /**
+   * line_items for the payload.
+   *
+   * `total` is sent for EVERY priced line, edited or not. line_items is
+   * replace-all, so a line sent without a total is re-priced from the
+   * catalogue - which means omitting it would discard a stored override the
+   * moment anything else about the items changed. That was a real data-loss
+   * path; sending the displayed figure closes it.
+   *
+   * The one line that cannot carry a total is a stopgap row added by id, whose
+   * price is not known client-side. There the key is omitted on purpose, so
+   * the server prices it. Sending 0 or '' would be far worse: '' is ignored by
+   * the API, but 0 would set the line to zero.
+   */
   function lineItemsPayload() {
-    return state.items.map((item) => ({
-      product_id: item.product_id,
-      quantity: item.quantity,
-    }))
+    return state.items.map((item) => {
+      const line = {
+        product_id: item.product_id,
+        quantity: item.quantity,
+      }
+
+      if (item.total !== null) {
+        // A raw numeric string at the store's decimals, per the money
+        // convention the API uses in both directions.
+        line.total = formatAmount(item.total)
+      }
+
+      return line
+    })
   }
 
   function buildPayload() {
@@ -695,9 +821,16 @@ export function OrderFormView({ orderId, onClose }) {
     try {
       // GET /orders/{id} returns the order BARE, with no { order, warnings }
       // wrapper - unlike the write routes.
-      applyServerOrder(await fetchOrder(state.orderId))
+      //
+      // The ONLY fetch of the order in this view. Saving re-renders from the
+      // write response and parsing touches nothing server-side, so there is no
+      // second GET anywhere on this screen.
+      applyServerOrder(await fetchOrder(state.orderId, signal))
       setMessage('')
     } catch (error) {
+      // Navigating away aborts this read. The view is already gone, so there
+      // is nothing to report and nothing to render into.
+      if (error?.name === 'AbortError') return
       if (error?.status === 401) return
       setMessage(error?.message || 'Could not load that order.', 'error')
     }
