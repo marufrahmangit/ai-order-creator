@@ -85,6 +85,24 @@ function ai_rest_prepare_order_detail(WC_Order $order) {
         ];
     }
 
+    // Fees are used often on this store, including NEGATIVE fees as discounts.
+    // Without them the client cannot reconcile the order total: line items plus
+    // shipping does not add up on any order carrying one.
+    $fee_lines = [];
+    foreach ($order->get_items('fee') as $item_id => $item) {
+        $fee_lines[] = [
+            'id' => (int) $item_id,
+            // 'edit' context deliberately. WC_Order_Item_Fee::get_name() in the
+            // default 'view' context substitutes the word "Fee" for an empty
+            // name and runs display filters; this endpoint reports what is
+            // stored, empty string included.
+            'name' => (string) $item->get_name('edit'),
+            // Can be negative, and is passed through unchanged - no clamping,
+            // no abs(). A discount IS a negative fee.
+            'total' => ai_rest_money($item->get_total()),
+        ];
+    }
+
     return [
         'id'           => $order->get_id(),
         'number'       => $order->get_order_number(),
@@ -101,6 +119,7 @@ function ai_rest_prepare_order_detail(WC_Order $order) {
         ],
         'line_items'     => $line_items,
         'shipping_lines' => $shipping_lines,
+        'fee_lines'      => $fee_lines,
         'customer_note'  => $order->get_customer_note(),
         'total'          => ai_rest_money($order->get_total()),
         'currency'       => $order->get_currency(),

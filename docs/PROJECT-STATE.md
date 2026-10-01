@@ -2,9 +2,10 @@
 
 Working brief for resuming this project cold. Present state only — git log is the history.
 
-Plugin header: **Order Ops v6.3**, Updated 2026-10-01. Live runs v4.9. Staging runs
-**6.3**, and **everything in it is verified**: steps 1-5 are done, the whole API layer is
-signed off, CORS works in both directions, and the PWA shell is confirmed in a browser.
+Plugin header: **Order Ops v6.4**, Updated 2026-10-01. Live runs v4.9. Staging runs
+**6.3**, and everything in it is verified: steps 1-5 are done, CORS works in both
+directions, and the PWA shell is confirmed in a browser. **6.4 (order fees, read and
+write) is committed but NOT uploaded and has never run.**
 **Step 6a (the order form and its line-items list) is BUILT but has never run against
 staging in a browser.** Step 6b, the product picker, is next. The app is still served
 from `npm run dev`; nothing has been deployed to a subdomain yet.
@@ -134,6 +135,18 @@ parser becomes one feature inside it, not the whole tool.
   write path. Auto-only; no manual override by design.
 - All WooCommerce statuses are settable from the app, read from
   `wc_get_order_statuses()` rather than hardcoded.
+- **Fees are first-class, and a DISCOUNT IS A NEGATIVE FEE.** `fee_lines` is readable and
+  writable on the order endpoints, and nothing in this plugin clamps or `abs()`es a fee
+  total in either direction. Without fees the order `total` is not reconcilable from
+  `line_items` plus `shipping_lines` — any order carrying one simply would not add up.
+- **`line_items`, `fee_lines` and shipping lines are three independent lists.** Each
+  replacement loop is scoped to one item type, so sending one list never disturbs
+  another. **Never use `WC_Abstract_Order::remove_order_items()` with no argument** — it
+  empties every item type at once, which would silently delete fees while "replacing
+  products". The scoped `get_items('<type>')` loop is the pattern.
+- **A fee's `name` is reported exactly as stored**, via `get_name('edit')`.
+  WooCommerce's default `view` context substitutes the word "Fee" for an empty name and
+  runs display filters; this API reports data, and an empty name stays empty.
 - "Delete" means trash. Endpoints are `POST /orders/{id}/trash` and
   `POST /orders/{id}/restore`. No force-delete is reachable from the app. Confirmed on
   11.0.1/HPOS: `WC_Order::delete(false)` is the correct trash call (not the legacy
@@ -339,7 +352,8 @@ because it defaults to `$override = false`:
 
 - `GET  /aioc/v1/ping` — `includes/rest/rest.php`
 - `GET  /aioc/v1/orders` — `includes/rest/routes/orders.php`
-- `GET  /aioc/v1/orders/{id}` — `includes/rest/routes/orders.php`
+- `GET  /aioc/v1/orders/{id}` — `includes/rest/routes/orders.php`. Carries `line_items`,
+  `shipping_lines` and `fee_lines`; the same builder serves both write routes.
 - `GET  /aioc/v1/products?search=&limit=&fields=` — `includes/rest/routes/products.php`.
   `search` is required, 3-character minimum on the whole term. `limit` defaults to 20
   and clamps to 50. `fields=picker` trims the row; anything else gives the full nine
@@ -501,6 +515,25 @@ that path does not pass through `api.js`'s `try`/`catch` around `fetch()`.
   missed; and variation-level SKUs are findable only by exact match via
   `wc_get_product_id_by_sku()`, the parent-first search never reaching a partial one.
   Parent/simple SKU partial matching IS verified.
+- **Nothing in 6.4 has run.** Fee read and write are unexercised; the local checks were
+  structural only (35 assertions covering the response shape, the scoped removals, and
+  the apply-before-totals ordering) because there is no PHP binary here. Verify on
+  staging: a positive fee appears in `fee_lines` and in the total; a NEGATIVE fee is
+  returned negative and reduces the total; an empty `name` comes back empty rather than
+  as "Fee"; **an update sending only `line_items` leaves the fees alone**; **an update
+  sending only `fee_lines` leaves the line items alone**; `fee_lines: []` removes all
+  fees; and a non-numeric total yields 0 plus a warning.
+- **WooCommerce caps a negative fee at the order's own value** inside
+  `calculate_totals()`, rewriting the fee item's total so the order cannot go below
+  zero. So a discount larger than the order comes back reduced rather than as sent.
+  That is WooCommerce's behaviour, not this plugin's — recorded so it is not
+  rediscovered as a bug. Unverified on staging, like the rest of 6.4.
+- **The app does not know about fees yet.** `app/src/views/order-form.js` computes its
+  provisional total as items plus shipping, so an order carrying a fee will show a
+  figure that disagrees with the server's while the form is dirty. It is right while the
+  form is clean, because it then shows the server's `total` verbatim. The form also
+  cannot display or edit fees. Both belong to step 6 app work; the endpoint side is
+  ready for them.
 - **Step 6a has never run in a browser.** It builds (22.6 kB of JS), every module
   resolves, and a 58-assertion contract check confirms every field name the form reads
   or sends matches what the PHP emits and accepts — but no request has been made. Unseen

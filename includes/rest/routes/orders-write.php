@@ -189,6 +189,65 @@ function ai_rest_add_line_items(WC_Order $order, $line_items, array &$warnings) 
 }
 
 /**
+ * Replace the order's fee items from a payload.
+ *
+ * Fees are used often on this store, and a NEGATIVE fee is how a discount is
+ * recorded, so nothing here clamps or abs()es the figure.
+ *
+ * One caveat that is WooCommerce's and not ours: calculate_totals() caps a
+ * negative fee at the order's own value, so it cannot push the total below
+ * zero. When it does that it REWRITES the fee item's total, which is why a
+ * discount larger than the order comes back from these endpoints reduced
+ * rather than as sent. The response reports what was stored, so the client can
+ * see it happened.
+ *
+ * @param WC_Order $order
+ * @param mixed    $fee_lines
+ * @param array    $warnings   Collected by reference.
+ * @return void
+ */
+function ai_rest_add_fee_lines(WC_Order $order, $fee_lines, array &$warnings) {
+    foreach ((array) $fee_lines as $entry) {
+        if (!is_array($entry)) {
+            $warnings[] = __('Skipped a fee line that was not an object.', 'ai-order-creator');
+            continue;
+        }
+
+        $raw_total = $entry['total'] ?? null;
+
+        if ($raw_total === null || $raw_total === '') {
+            // No figure is a zero fee, not a rejection - WooCommerce admin
+            // allows saving a fee row before its amount is filled in.
+            $total = '0';
+        } else {
+            // wc_format_decimal() strips everything that is not a digit, sign
+            // or separator, so non-numeric input collapses to ''. That becomes
+            // 0 rather than an error, but it is worth saying out loud: a typo
+            // in a DISCOUNT silently becoming nothing is expensive.
+            $total = wc_format_decimal($raw_total);
+
+            if ($total === '') {
+                $total = '0';
+                $warnings[] = sprintf(
+                    /* translators: %s: the rejected fee total as submitted. */
+                    __('Fee total "%s" is not a number; the fee was added at 0.', 'ai-order-creator'),
+                    (string) $raw_total
+                );
+            }
+        }
+
+        $fee = new WC_Order_Item_Fee();
+
+        // An empty name is allowed, exactly as WooCommerce allows it. The read
+        // side reports it back empty rather than substituting "Fee".
+        $fee->set_name(sanitize_text_field((string) ($entry['name'] ?? '')));
+        $fee->set_total($total);
+
+        $order->add_item($fee);
+    }
+}
+
+/**
  * Apply a validated payload to an order.
  *
  * Only fields present in the request are touched.
@@ -239,6 +298,11 @@ function ai_rest_apply_order_payload(WC_Order $order, WP_REST_Request $request, 
 
     if ($request->has_param('line_items')) {
         ai_rest_add_line_items($order, $request->get_param('line_items'), $warnings);
+    }
+
+    // Before ai_rest_finalize_order() runs, so calculate_totals() counts them.
+    if ($request->has_param('fee_lines')) {
+        ai_rest_add_fee_lines($order, $request->get_param('fee_lines'), $warnings);
     }
 }
 
@@ -339,7 +403,15 @@ function ai_rest_create_order(WP_REST_Request $request) {
  * present, ALL existing product line items are removed and replaced by the
  * payload - there is no per-item patching, the client holds the full list. Note
  * that this DISCARDS line item ids and any line item meta; a replaced item is a
- * new row, not an edited one. Shipping and fee lines are not touched here.
+ * new row, not an edited one.
+ *
+ * fee_lines behaves identically and INDEPENDENTLY: absent leaves existing fees
+ * alone, present removes every fee item and replaces it from the payload, and
+ * an empty array therefore removes all fees. It likewise DISCARDS fee item ids
+ * - a replaced fee is a new row. Sending one list never affects the other.
+ *
+ * Shipping lines are not touched by either; ai_apply_shipping() owns them and
+ * replaces only its own type.
  *
  * Shipping is ALWAYS recalculated, regardless of which fields changed. That is
  * intentional and follows the auto-only shipping decision - there is no manual
@@ -363,8 +435,20 @@ function ai_rest_update_order(WP_REST_Request $request) {
 
     // Replace-all, not patch. Done before apply so the payload's items land in
     // an emptied list.
+    //
+    // Both loops are scoped to ONE item type. That is what keeps the two lists
+    // independent: sending line_items alone leaves the fees, and sending
+    // fee_lines alone leaves the products. The blunt instrument to avoid is
+    // WC_Abstract_Order::remove_order_items() with no argument, which empties
+    // every item type at once - products, fees, shipping and taxes.
     if ($request->has_param('line_items')) {
         foreach ($order->get_items('line_item') as $item_id => $item) {
+            $order->remove_item($item_id);
+        }
+    }
+
+    if ($request->has_param('fee_lines')) {
+        foreach ($order->get_items('fee') as $item_id => $item) {
             $order->remove_item($item_id);
         }
     }
@@ -491,6 +575,9 @@ function ai_rest_order_write_args() {
             'sanitize_callback' => 'ai_rest_sanitize_text',
         ],
         'line_items' => [
+            'type' => 'array',
+        ],
+        'fee_lines' => [
             'type' => 'array',
         ],
     ];

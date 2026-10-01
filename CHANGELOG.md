@@ -2,6 +2,18 @@
 
 All notable changes to AI Order Creator are documented in this file.
 
+## 6.4
+
+- **Added fee support to the order endpoints, readable and writable.** Fees are used often on this store, including **negative fees as discounts**.
+- **Read.** The shared order response builder returns `fee_lines` as `[{id, name, total}]` from `$order->get_items('fee')`, so `GET /orders/{id}`, `POST /orders` and `POST /orders/{id}` all carry it at once. This closes a real gap: an order with a fee reported a `total` the client could not reconcile from `line_items` plus `shipping_lines`.
+  - `total` is a raw numeric string at 2dp like every other money field and **can be negative**, passed through unchanged — no clamping, no `abs()`.
+  - `name` is reported **exactly as stored**, via `get_name('edit')`. The default `view` context substitutes the word "Fee" for an empty name and runs display filters, which is display behaviour this API has no business doing.
+- **Write.** Both write endpoints accept `fee_lines` as an array of `{name, total}`, built with `WC_Order_Item_Fee`, `set_name()`, `set_total()` and `$order->add_item()`. They are applied inside the shared payload applier, so they land **before** `ai_rest_finalize_order()` and `calculate_totals()` counts them.
+  - Semantics match `line_items` exactly and **independently**: an absent key leaves existing fees alone; a present key removes every fee item and replaces it from the payload; an empty array removes all fees. Replacement **discards fee item ids** — a replaced fee is a new row, not an edited one.
+  - An empty `name` is allowed, as WooCommerce allows it. A missing total is 0; a non-numeric total is 0 **with a warning**, because a typo silently turning a discount into nothing is expensive.
+- **The two lists are genuinely independent, and were already.** The line-item replacement was scoped to `get_items('line_item')` and `ai_apply_shipping()` to `get_items('shipping')`, so neither disturbs fees, and the new fee removal is scoped to `get_items('fee')`. Nothing in this plugin calls `WC_Abstract_Order::remove_order_items()` with no argument — that empties *every* item type, products, fees, shipping and taxes alike. **No fix was needed.**
+- **One WooCommerce behaviour to know about**, not a defect here: `calculate_totals()` caps a negative fee at the order's own value so the total cannot fall below zero, and it does so by **rewriting the fee item's own total**. A discount larger than the order therefore comes back from these endpoints reduced rather than as sent. The response reports what was stored, so the client can see it happened.
+
 ## 6.3
 
 - **Bulk-prime the post, meta and term caches before hydrating product objects.** Measured on staging at 6.2: `timing_ms` was **47ms for a numeric search but 438ms for a broad text search**. Sorting by price needs every candidate hydrated before it can be ordered, so `?search=three` turned roughly 180 candidate ids into product objects one at a time — and each `wc_get_product()` hit the database three separate ways:
