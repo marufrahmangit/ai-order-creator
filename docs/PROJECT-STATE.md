@@ -3,9 +3,9 @@
 Working brief for resuming this project cold. Present state only — git log is the history.
 
 Plugin header: **Order Ops v6.4**, Updated 2026-10-01. Live runs v4.9. Staging runs
-**6.3**, and everything in it is verified: steps 1-5 are done, CORS works in both
-directions, and the PWA shell is confirmed in a browser. **6.4 (order fees, read and
-write) is committed but NOT uploaded and has never run.**
+**6.4**, and **everything in it is verified** — steps 1-5 done, the whole API layer
+signed off including order fees, CORS working in both directions, and the PWA shell
+confirmed in a browser. **No plugin gate remains.**
 **Step 6a (the order form and its line-items list) is BUILT but has never run against
 staging in a browser.** Step 6b, the product picker, is next. The app is still served
 from `npm run dev`; nothing has been deployed to a subdomain yet.
@@ -230,6 +230,23 @@ parser becomes one feature inside it, not the whole tool.
   - Typed figures are normalized on blur, never mid-entry, and tolerate spaces and
     thousands separators, because "1,500" is how the amount actually gets typed and
     `Number()` makes `NaN` of it.
+- **The order form edits fees, including negative ones.** A fee row is a name input and
+  an amount input; the name may be empty and the amount may be negative, with nothing
+  blocking a minus sign or taking an absolute value. The provisional total is items plus
+  fees plus shipping, and the Fees row is omitted entirely when there are none rather
+  than showing 0.00.
+  - **Fee dirty state is tracked separately from line-item dirty state**, never folded
+    into one flag. The endpoints treat the two lists as independent replace-all lists,
+    so a single flag would make editing a product silently rewrite the fees. An empty
+    array is a real instruction - it clears every fee - so "untouched" (omit the key)
+    stays distinguishable from "emptied" (send `[]`).
+  - A sign toggle sits beside each amount, because **neither iOS keypad offers a minus
+    sign** and a discount has to be typeable one-handed. Not in the original brief;
+    remove it if the keyboard turns out not to be a problem in practice.
+- **The form holds no line, fee or shipping item id.** Replacement discards them
+  server-side, and `ai_apply_shipping()` clears and re-adds the shipping line on every
+  save, so any id kept client-side would be stale immediately. Line items keep
+  `product_id`; shipping keeps only its cost and label.
 - **The API reports no order-level subtotal** — only per-line `subtotal`/`total` and the
   order `total` — so the form sums the line totals itself for the "Items" figure. It
   does not compute shipping or invent an order total: while nothing has been edited
@@ -479,6 +496,21 @@ because the second count is what makes the first one mean something:
   latency a staff member actually feels is now the network, and the place to hide it is
   client-side caching in the step 6 picker.
 
+Fees (6.4), confirmed on staging — **the two item lists are independent**, which was the
+property most worth proving because getting it wrong deletes data silently:
+
+- Create with two fees, one of them NEGATIVE, totalled correctly. A discount really is
+  just a negative fee as far as the whole stack is concerned.
+- An update sending **only `line_items` left both fees intact, with their original
+  ids** — so the product replacement does not reach them.
+- An update sending **only `fee_lines` left the line item intact** and replaced the
+  fees — so the fee replacement does not reach the products.
+- `fee_lines: []` cleared every fee, confirming an empty array is a real instruction
+  rather than the same as omitting the key.
+
+That is the behaviour the scoped `get_items('<type>')` loops buy, and it is why
+`remove_order_items()` with no argument must never appear in this plugin.
+
 Step 5 — the PWA shell, confirmed in a browser against plugin 6.1, served from
 `npm run dev` at `http://localhost:5173` with `ai_app_origin` set to that exact origin:
 
@@ -515,25 +547,12 @@ that path does not pass through `api.js`'s `try`/`catch` around `fetch()`.
   missed; and variation-level SKUs are findable only by exact match via
   `wc_get_product_id_by_sku()`, the parent-first search never reaching a partial one.
   Parent/simple SKU partial matching IS verified.
-- **Nothing in 6.4 has run.** Fee read and write are unexercised; the local checks were
-  structural only (35 assertions covering the response shape, the scoped removals, and
-  the apply-before-totals ordering) because there is no PHP binary here. Verify on
-  staging: a positive fee appears in `fee_lines` and in the total; a NEGATIVE fee is
-  returned negative and reduces the total; an empty `name` comes back empty rather than
-  as "Fee"; **an update sending only `line_items` leaves the fees alone**; **an update
-  sending only `fee_lines` leaves the line items alone**; `fee_lines: []` removes all
-  fees; and a non-numeric total yields 0 plus a warning.
 - **WooCommerce caps a negative fee at the order's own value** inside
   `calculate_totals()`, rewriting the fee item's total so the order cannot go below
-  zero. So a discount larger than the order comes back reduced rather than as sent.
-  That is WooCommerce's behaviour, not this plugin's — recorded so it is not
-  rediscovered as a bug. Unverified on staging, like the rest of 6.4.
-- **The app does not know about fees yet.** `app/src/views/order-form.js` computes its
-  provisional total as items plus shipping, so an order carrying a fee will show a
-  figure that disagrees with the server's while the form is dirty. It is right while the
-  form is clean, because it then shows the server's `total` verbatim. The form also
-  cannot display or edit fees. Both belong to step 6 app work; the endpoint side is
-  ready for them.
+  zero. A discount larger than the order therefore comes back smaller than it was sent.
+  That is WooCommerce's behaviour, not this plugin's, and the app deliberately does not
+  try to detect or warn about it — the re-render after saving simply shows the figure
+  the server kept. Recorded so it is not rediscovered as a bug.
 - **Step 6a has never run in a browser.** It builds (22.6 kB of JS), every module
   resolves, and a 58-assertion contract check confirms every field name the form reads
   or sends matches what the PHP emits and accepts — but no request has been made. Unseen
@@ -542,7 +561,9 @@ that path does not pass through `api.js`'s `try`/`catch` around `fetch()`.
   update actually leaving untouched fields alone, create, and trash. Also unverified:
   that an edited line total round-trips — type a figure, save, and confirm the returned
   order carries it rather than the catalogue price — and that an overridden line
-  survives a quantity change. Verify against
+  survives a quantity change. Fees likewise: adding a fee and a discount, confirming
+  the Fees row and the total, that removing every fee and saving actually clears them,
+  and that editing a product does not disturb the fees in the round trip. Verify against
   staging with `ai_app_origin` at `http://localhost:5173`.
 - **Restore is not reachable from the app.** Trashed orders are excluded from
   `GET /orders`, so there is no route to a trashed order and nowhere to put a restore

@@ -684,3 +684,69 @@ button {
   background: var(--bg);
   border-top: 1px solid var(--line);
 }
+
+/* ---------- Fees ---------- */
+
+.fee-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.fee-name-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: var(--tap);
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  color: var(--ink);
+}
+
+.fee-amount-group {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 6px;
+}
+
+/* A charge and a discount differ only by a minus sign, and neither iOS
+   keypad offers one - hence an explicit toggle rather than trusting the
+   keyboard. */
+.sign-toggle {
+  width: 44px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.fee-amount-input {
+  width: 104px;
+  min-height: var(--tap);
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  color: var(--ink);
+  font-weight: 700;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.fee-name-input:focus-visible,
+.fee-amount-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.fee-row-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.fee-row-foot .field-hint {
+  margin: 0;
+}

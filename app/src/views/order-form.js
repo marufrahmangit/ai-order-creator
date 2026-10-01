@@ -62,7 +62,23 @@ export function OrderFormView({ orderId, onClose, signal }) {
      * stored lines survive.
      */
     itemsDirty: false,
-    /** Display only. Never computed here - see the note at the top. */
+    /** [{ name, total }]. A NEGATIVE total is how a discount is recorded. */
+    fees: [],
+    /**
+     * Tracked SEPARATELY from itemsDirty, never folded into it. The endpoints
+     * treat line_items and fee_lines as independent replace-all lists, so
+     * collapsing the two flags here would make editing a product silently
+     * rewrite the fees, or vice versa.
+     */
+    feesDirty: false,
+    /**
+     * Display only. Never computed here - see the note at the top.
+     *
+     * Deliberately NOT the shipping line's id: ai_apply_shipping() clears and
+     * re-adds the line on every save, so any id held here would be stale the
+     * moment it was stored. Nothing in this form keeps a line, fee or shipping
+     * item id - replacement discards them all server-side anyway.
+     */
     shipping: { cost: null, label: '' },
     /** The server's order total, valid until a local edit diverges from it. */
     serverTotal: null,
@@ -469,6 +485,152 @@ export function OrderFormView({ orderId, onClose, signal }) {
     el('div', { class: 'add-item-row' }, [addIdInput, addButton]),
   ])
 
+  // ---------------------------------------------------------------- fees
+
+  const feesList = el('div', { class: 'items-list' })
+
+  /**
+   * One fee row.
+   *
+   * `total` can be negative - that is not an edge case, it is how a discount
+   * is recorded. Nothing here blocks a minus sign or takes an absolute value.
+   * An empty name is allowed, because WooCommerce allows it.
+   */
+  function makeFee({ name, total }) {
+    return {
+      name: typeof name === 'string' ? name : '',
+      total,
+    }
+  }
+
+  function addFee() {
+    state.fees.push(makeFee({ name: '', total: null }))
+    state.feesDirty = true
+    renderFees()
+    renderTotals()
+  }
+
+  function removeFee(fee) {
+    state.fees = state.fees.filter((candidate) => candidate !== fee)
+    state.feesDirty = true
+    renderFees()
+    renderTotals()
+  }
+
+  /** Mid-typing: update the figure and the order total, never the input. */
+  function onFeeAmountInput(fee, rawText) {
+    state.feesDirty = true
+
+    const parsed = parseTypedAmount(rawText)
+    if (parsed !== null) {
+      fee.total = parsed
+      renderTotals()
+    }
+  }
+
+  /**
+   * On blur: settle on a figure and show it canonically.
+   *
+   * @returns {string} The text the input should now display.
+   */
+  function onFeeAmountBlur(fee, rawText) {
+    const text = rawText.trim()
+
+    if (text === '') {
+      fee.total = null
+    } else {
+      const parsed = parseTypedAmount(text)
+      // An unparseable amount keeps whatever the row already held rather than
+      // collapsing to 0 - a typo must not quietly cancel a discount.
+      if (parsed !== null) fee.total = parsed
+    }
+
+    renderTotals()
+
+    return fee.total === null ? '' : formatAmount(fee.total)
+  }
+
+  function renderFees() {
+    clear(feesList)
+
+    if (state.fees.length === 0) {
+      feesList.append(el('p', { class: 'muted', text: 'No fees on this order.' }))
+      return
+    }
+
+    for (const fee of state.fees) {
+      const nameInputRow = el('input', {
+        type: 'text',
+        class: 'fee-name-input',
+        value: fee.name,
+        placeholder: 'Fee name (optional)',
+        'aria-label': 'Fee name',
+        onInput: (event) => {
+          fee.name = event.target.value
+          state.feesDirty = true
+        },
+      })
+
+      const amountInput = el('input', {
+        type: 'text',
+        // decimal rather than numeric for the separator key. Note that on iOS
+        // neither keypad offers a minus sign, which is why the sign toggle
+        // below exists - a discount has to be typeable one-handed.
+        inputmode: 'decimal',
+        class: 'fee-amount-input',
+        value: fee.total === null ? '' : formatAmount(fee.total),
+        placeholder: '0.00',
+        'aria-label': 'Fee amount, negative for a discount',
+        onInput: (event) => onFeeAmountInput(fee, event.target.value),
+        onBlur: (event) => {
+          // Written straight to the input rather than re-rendering the row,
+          // which would rebuild this node and drop the keyboard.
+          event.target.value = onFeeAmountBlur(fee, event.target.value)
+        },
+      })
+
+      const signToggle = el('button', {
+        type: 'button',
+        class: 'button sign-toggle',
+        text: '±',
+        title: 'Switch between a charge and a discount',
+        'aria-label': 'Switch between a charge and a discount',
+        onClick: () => {
+          if (fee.total === null || fee.total === 0) return
+          fee.total = -fee.total
+          state.feesDirty = true
+          amountInput.value = formatAmount(fee.total)
+          renderTotals()
+        },
+      })
+
+      feesList.append(el('article', { class: 'item-row' }, [
+        el('div', { class: 'fee-row' }, [
+          nameInputRow,
+          el('div', { class: 'fee-amount-group' }, [signToggle, amountInput]),
+        ]),
+        el('div', { class: 'fee-row-foot' }, [
+          el('span', {
+            class: 'field-hint',
+            text: (fee.total ?? 0) < 0 ? 'Discount' : 'Charge',
+          }),
+          el('button', {
+            type: 'button',
+            class: 'button link danger',
+            text: 'Remove',
+            'aria-label': 'Remove this fee',
+            onClick: () => removeFee(fee),
+          }),
+        ]),
+      ]))
+    }
+  }
+
+  const addFeeBox = el('div', { class: 'add-item' }, [
+    el('button', { type: 'button', class: 'button', text: 'Add fee', onClick: addFee }),
+    el('p', { class: 'field-hint', text: 'A negative amount is a discount.' }),
+  ])
+
   // ---------------------------------------------------------------- totals
 
   const totalsNode = el('div', { class: 'totals' })
@@ -498,6 +660,13 @@ export function OrderFormView({ orderId, onClose, signal }) {
       }))
     }
 
+    // Only when there are fees. A 0.00 Fees row on every order would be noise
+    // on a screen that is already taller than the viewport.
+    const feesTotal = state.fees.reduce((sum, fee) => sum + (fee.total ?? 0), 0)
+    if (state.fees.length > 0) {
+      totalsNode.append(totalsRow('Fees', formatMoney(feesTotal)))
+    }
+
     // Shipping is the server's to decide. Blank until it has told us.
     totalsNode.append(totalsRow(
       state.shipping.label || 'Shipping',
@@ -509,10 +678,10 @@ export function OrderFormView({ orderId, onClose, signal }) {
     // per-line override. Once there are local edits it cannot be, so the
     // computed figure takes over and the note below says it is provisional.
     const shippingCost = state.shipping.cost ?? 0
-    const clean = state.dirty.size === 0 && !state.itemsDirty
+    const clean = state.dirty.size === 0 && !state.itemsDirty && !state.feesDirty
     const orderTotal = (clean && state.serverTotal !== null)
       ? state.serverTotal
-      : subtotal + shippingCost
+      : subtotal + feesTotal + shippingCost
 
     totalsNode.append(totalsRow('Order total', formatMoney(orderTotal), 'totals-total'))
 
@@ -522,6 +691,11 @@ export function OrderFormView({ orderId, onClose, signal }) {
     if (state.dirty.has('state')) reasons.push('the district changed, so shipping recalculates')
     if (unknown > 0) reasons.push('unpriced items are priced')
     if (state.itemsDirty && state.orderId !== null) reasons.push('items were edited and are re-priced from the catalogue')
+    // WooCommerce caps a negative fee at the order's own value so the total
+    // cannot go below zero, rewriting the fee item to do it. Not detected or
+    // warned about here - the re-render after saving simply shows the figure
+    // the server kept.
+    if (state.feesDirty && feesTotal < 0) reasons.push('a discount cannot take the total below zero')
 
     if (reasons.length > 0) {
       totalsNode.append(el('p', {
@@ -627,6 +801,26 @@ export function OrderFormView({ orderId, onClose, signal }) {
     })
   }
 
+  /**
+   * fee_lines for the payload. [{name, total}] - no ids, because fee
+   * replacement discards them server-side.
+   *
+   * An amount left blank sends no total, and the endpoint stores 0 for it.
+   * That mirrors how an unpriced line item omits its total rather than
+   * inventing a figure the user never typed.
+   */
+  function feeLinesPayload() {
+    return state.fees.map((fee) => {
+      const line = { name: fee.name }
+
+      if (fee.total !== null) {
+        line.total = formatAmount(fee.total)
+      }
+
+      return line
+    })
+  }
+
   function buildPayload() {
     const values = readFields()
     const payload = {}
@@ -639,6 +833,7 @@ export function OrderFormView({ orderId, onClose, signal }) {
         if (values[key] !== '') payload[key] = values[key]
       }
       if (state.items.length > 0) payload.line_items = lineItemsPayload()
+      if (state.fees.length > 0) payload.fee_lines = feeLinesPayload()
       return payload
     }
 
@@ -650,6 +845,11 @@ export function OrderFormView({ orderId, onClose, signal }) {
       payload[key] = values[key]
     }
     if (state.itemsDirty) payload.line_items = lineItemsPayload()
+
+    // Independent of itemsDirty, and an EMPTY array is meaningful: it clears
+    // every fee. So "untouched" has to stay distinguishable from "emptied" -
+    // untouched omits the key, emptied sends [].
+    if (state.feesDirty) payload.fee_lines = feeLinesPayload()
 
     return payload
   }
@@ -794,6 +994,12 @@ export function OrderFormView({ orderId, onClose, signal }) {
       })
     })
 
+    state.fees = (Array.isArray(order.fee_lines) ? order.fee_lines : []).map((line) => makeFee({
+      name: line.name || '',
+      // Negative is normal here. toNumber keeps the sign.
+      total: toNumber(line.total),
+    }))
+
     const shippingLines = Array.isArray(order.shipping_lines) ? order.shipping_lines : []
     state.shipping = shippingLines.length === 0
       ? { cost: null, label: '' }
@@ -806,11 +1012,13 @@ export function OrderFormView({ orderId, onClose, signal }) {
 
     state.dirty.clear()
     state.itemsDirty = false
+    state.feesDirty = false
 
     title.textContent = order.number ? `Order #${order.number}` : 'Order'
     pasteBox.open = false
 
     renderItems()
+    renderFees()
     renderTotals()
     renderTrash(false)
     setBusy(false)
@@ -858,6 +1066,11 @@ export function OrderFormView({ orderId, onClose, signal }) {
         addItemBox,
       ]),
       el('section', { class: 'form-section' }, [
+        el('h2', { class: 'section-title', text: 'Fees' }),
+        feesList,
+        addFeeBox,
+      ]),
+      el('section', { class: 'form-section' }, [
         el('h2', { class: 'section-title', text: 'Totals' }),
         totalsNode,
       ]),
@@ -869,6 +1082,7 @@ export function OrderFormView({ orderId, onClose, signal }) {
   ])
 
   renderItems()
+  renderFees()
   renderTotals()
   renderWarnings()
   renderTrash(false)
