@@ -1,9 +1,11 @@
 /**
- * App entry. Two screens for now: login, and the order list.
+ * App entry. Three screens: login, the order list, and the order form.
  *
- * No router - there are no URLs to speak of yet, and step 6 adds a form rather
- * than deep links. Swapping the contents of #app is enough and keeps the
- * back button out of a half-built navigation model.
+ * Still no router. Swapping the contents of #app covers it, and the form is
+ * reached from the list rather than from a URL, so there is nothing to put in
+ * one yet. If deep links are ever wanted - opening an order from a message, say
+ * - that is the point to add one, and it will want real history handling rather
+ * than a hash.
  */
 
 import './styles.css'
@@ -12,6 +14,7 @@ import { isSignedIn, clearCredential, getCredential } from './auth.js'
 import { loadMeta, clearMeta } from './meta.js'
 import { LoginView } from './views/login.js'
 import { OrdersView } from './views/orders.js'
+import { OrderFormView } from './views/order-form.js'
 import { el, clear } from './dom.js'
 
 const root = document.getElementById('app')
@@ -19,6 +22,9 @@ const root = document.getElementById('app')
 function mount(view) {
   clear(root)
   root.append(view)
+  // Each screen starts at the top. Without this, opening an order from halfway
+  // down the list lands the form mid-scroll.
+  window.scrollTo(0, 0)
 }
 
 /**
@@ -54,9 +60,29 @@ function signOut() {
   showLogin()
 }
 
-async function showOrders() {
-  // /meta has to be loaded before the list renders: it supplies the status
-  // dropdown and the currency and decimal places money is formatted with.
+function showStartupFailure(error, retry) {
+  mount(
+    el('main', { class: 'setup' }, [
+      el('h1', { text: 'Could not start' }),
+      el('p', { text: error?.message || 'Failed to load settings from the server.' }),
+      el('p', { class: 'muted', text: `API: ${apiBase()}` }),
+      el('div', { class: 'setup-actions' }, [
+        el('button', { type: 'button', class: 'button primary', text: 'Try again', onClick: retry }),
+        el('button', { type: 'button', class: 'button', text: 'Sign out', onClick: signOut }),
+      ]),
+    ]),
+  )
+}
+
+/**
+ * Both signed-in screens need /meta before they render: it supplies the status
+ * and district dropdowns, and the currency and decimal places money is
+ * formatted with. It is cached for the session, so only the first call costs a
+ * request.
+ *
+ * @param {() => void} render
+ */
+async function withMeta(render) {
   mount(el('main', { class: 'loading' }, [el('p', { text: 'Loading…' })]))
 
   try {
@@ -66,22 +92,34 @@ async function showOrders() {
     // cleared it and fired orderops:signedout, which routes to the login
     // screen. Anything else is worth showing, with a way out.
     if (error?.status === 401) return
-
-    mount(
-      el('main', { class: 'setup' }, [
-        el('h1', { text: 'Could not start' }),
-        el('p', { text: error?.message || 'Failed to load settings from the server.' }),
-        el('p', { class: 'muted', text: `API: ${apiBase()}` }),
-        el('div', { class: 'setup-actions' }, [
-          el('button', { type: 'button', class: 'button primary', text: 'Try again', onClick: showOrders }),
-          el('button', { type: 'button', class: 'button', text: 'Sign out', onClick: signOut }),
-        ]),
-      ]),
-    )
+    showStartupFailure(error, () => withMeta(render))
     return
   }
 
-  mount(OrdersView({ onSignOut: signOut }))
+  render()
+}
+
+function showOrders() {
+  withMeta(() => mount(OrdersView({
+    onSignOut: signOut,
+    onOpenOrder: showOrderForm,
+    onNewOrder: () => showOrderForm(null),
+  })))
+}
+
+/**
+ * The order form, for a new order (null) or an existing one.
+ *
+ * Closing always returns to the list and reloads it, so a saved change or a
+ * trashed order is reflected rather than leaving a stale row on screen.
+ *
+ * @param {number|null} orderId
+ */
+function showOrderForm(orderId) {
+  withMeta(() => mount(OrderFormView({
+    orderId: orderId ?? null,
+    onClose: showOrders,
+  })))
 }
 
 /**

@@ -241,9 +241,61 @@ export function fetchOrders({ page = 1, perPage = 20, search = '', status = '' }
   })
 }
 
-/** GET /orders/{id} - full order. Used by step 6; here so the client is complete. */
+/**
+ * GET /orders/{id} - the full order.
+ *
+ * Returns the order object BARE, with no envelope - unlike the write routes
+ * below, which wrap it as { order, warnings }. Easy to confuse; they are
+ * different shapes.
+ */
 export function fetchOrder(id, signal) {
   return request(`/orders/${encodeURIComponent(id)}`, { signal })
+}
+
+/**
+ * POST /parse - text in, structured data out. Creates and changes NOTHING.
+ *
+ * Returns { parsed: {name, phone, address_1, state, state_code, state_label,
+ * customer_note}, shipping_preview: {cost, label}, warnings: [] }. A 422 means
+ * parsing failed outright, which only happens when both name and phone are
+ * missing; partial extraction succeeds and reports warnings instead.
+ */
+export function parseText(text, signal) {
+  return request('/parse', { method: 'POST', body: { text }, signal })
+}
+
+/**
+ * POST /orders - create. Returns { order, warnings } with status 201.
+ *
+ * An empty payload is valid and creates an empty pending order, because
+ * validation mirrors WooCommerce rather than being stricter.
+ */
+export function createOrder(payload, signal) {
+  return request('/orders', { method: 'POST', body: payload, signal })
+}
+
+/**
+ * POST /orders/{id} - PARTIAL update. Returns { order, warnings }.
+ *
+ * Only keys present in the payload change; an absent key is left alone. So
+ * omitting a field preserves it, while sending it empty clears it - which is
+ * why the form tracks dirty state per field rather than posting everything.
+ *
+ * line_items is replace-all: present means "these are now the lines", absent
+ * means "leave the lines alone". There is no per-item patching.
+ */
+export function updateOrder(id, payload, signal) {
+  return request(`/orders/${encodeURIComponent(id)}`, { method: 'POST', body: payload, signal })
+}
+
+/**
+ * POST /orders/{id}/trash - returns { id, status: 'trash' }.
+ *
+ * Trash, never a permanent delete; no force parameter exists anywhere in the
+ * API. Restoring is not reachable from this app yet.
+ */
+export function trashOrder(id, signal) {
+  return request(`/orders/${encodeURIComponent(id)}/trash`, { method: 'POST', signal })
 }
 
 /** GET /ping - auth and CORS smoke test. */

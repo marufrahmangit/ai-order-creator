@@ -5,9 +5,9 @@ Working brief for resuming this project cold. Present state only — git log is 
 Plugin header: **Order Ops v6.3**, Updated 2026-10-01. Live runs v4.9. Staging runs
 **6.3**, and **everything in it is verified**: steps 1-5 are done, the whole API layer is
 signed off, CORS works in both directions, and the PWA shell is confirmed in a browser.
-**No gate remains. Step 6 (the create/edit form and product picker) is the work in
-hand.** The app is still served from `npm run dev`; nothing has been deployed to a
-subdomain yet.
+**Step 6a (the order form and its line-items list) is BUILT but has never run against
+staging in a browser.** Step 6b, the product picker, is next. The app is still served
+from `npm run dev`; nothing has been deployed to a subdomain yet.
 
 **`/products` is done being optimised.** Server-side search now costs 40-90ms against
 several hundred ms of round-trip latency, so network dominates and further server-side
@@ -63,6 +63,11 @@ parser becomes one feature inside it, not the whole tool.
     A build made against staging keeps pointing at staging wherever it is uploaded, so
     the environment is chosen by which `.env.local` was in place when `npm run build`
     ran. Check it before uploading to live.
+  - **`app/dist/` must be rebuilt before any deploy.** It is untracked, so it is
+    whatever was last built on that machine — it does not follow a `git pull`, and it
+    does not update when `app/src/` changes. Every app change since the last build,
+    step 6a included, is absent from an existing `dist/` until `npm run build` runs
+    again. There is no build step on the server to catch this.
 - Deploy is manual file upload to `wp-content/plugins/ai-order-creator/`. The plugin
   DIRECTORY NAME must never change — renaming deactivates it on the live site. After
   every upload, verify with `GET /aioc/v1/ping` and check the returned version matches
@@ -104,6 +109,10 @@ parser becomes one feature inside it, not the whole tool.
   credential, `meta.js` the session-cached `/meta`, `format.js` money and dates,
   `dom.js` node building, `views/` one file per screen. Views never call `fetch`
   directly.
+- The order form re-renders only its dynamic parts — the items list, the totals, the
+  warnings — and never the field inputs. Rebuilding an input while someone is typing in
+  it loses their caret and, on a phone, closes the keyboard. Field values are written
+  only when loading an order, after a save, or from `/parse`.
 - The app builds nodes and sets `textContent`; it never assembles HTML from data.
   Order data is staff-pasted free text, so string-built markup would be an injection
   risk. `dom.js` has no `html` option by design.
@@ -174,6 +183,19 @@ parser becomes one feature inside it, not the whole tool.
   it for abandoned-cart drafts; it is not a status staff should ever set. `/meta`
   returning it is correct — it reports what WooCommerce registers — so the filtering
   belongs in the app, not the endpoint. It arrives among the 8 statuses `/meta` returns.
+- **Adding a line item by typing a product ID is a STOPGAP for step 6a only**, replaced
+  by the picker in 6b. It is marked as temporary in `app/src/views/order-form.js` and in
+  the UI itself. The id is sent **blind** — deliberately, not lazily: `GET /products` has
+  no id lookup, and `ai_rest_parse_search_term()` reads a wholly numeric term as a PRICE,
+  so `?search=9167` returns products *costing* 9167, not product 9167. Resolving through
+  it would display a confidently wrong name and price. The server resolves the id on
+  save, the re-render fills in the real values, and a non-existent id comes back as a
+  warning with the line skipped.
+- **The API reports no order-level subtotal** — only per-line `subtotal`/`total` and the
+  order `total` — so the form sums the line totals itself for the "Items" figure. It
+  does not compute shipping or invent an order total: while nothing has been edited
+  locally it shows the server's `total`, which can legitimately differ from items plus
+  shipping because of a coupon or a discount.
 - **Field-level validation mirrors WooCommerce, not stricter.** WooCommerce permits
   saving an order with no phone, no address, no line items and no state — details can be
   filled in later. The app must permit the same. Do NOT add required-field validation to
@@ -267,7 +289,8 @@ parser becomes one feature inside it, not the whole tool.
 | 4c | `GET /meta` — states, statuses, currency for the app | done, **verified on staging** at 6.1 | 6.0 |
 | 4d | `POST /token` — login; account password → app password | done, **verified on staging** at 6.1 | 6.1 |
 | 5 | PWA shell — subdomain, auth, order list | auth + list done, **verified in a browser** against 6.1; **subdomain not yet stood up** | — |
-| 6 | Create/edit form with product picker | **next** | — |
+| 6a | Order form — fields, paste-and-parse, line items, totals, save, trash | built, **unverified in a browser** | — |
+| 6b | Product picker — replaces the temporary add-by-id control | **next** | — |
 | 7 | Manifest, service worker, install prompt | not started | — |
 
 **The API layer is complete and signed off.** Step 3 at 5.6/5.7 with 3d/3e verified at
@@ -452,6 +475,25 @@ that path does not pass through `api.js`'s `try`/`catch` around `fetch()`.
   missed; and variation-level SKUs are findable only by exact match via
   `wc_get_product_id_by_sku()`, the parent-first search never reaching a partial one.
   Parent/simple SKU partial matching IS verified.
+- **Step 6a has never run in a browser.** It builds (22.6 kB of JS), every module
+  resolves, and a 58-assertion contract check confirms every field name the form reads
+  or sends matches what the PHP emits and accepts — but no request has been made. Unseen
+  end to end: paste-and-parse populating the fields, the district and status selects
+  against real `/meta` data, loading an existing order, the quantity stepper, partial
+  update actually leaving untouched fields alone, create, and trash. Verify against
+  staging with `ai_app_origin` at `http://localhost:5173`.
+- **Editing line items DISCARDS any per-line price override or discount.** The payload
+  carries only `product_id` and `quantity`, and `line_items` is replace-all, so the
+  server re-prices every line from the catalogue. An order whose stored line total came
+  from a coupon, a discount or a manual wp-admin edit loses that figure the moment the
+  items are touched in the app. The form shows the stored total until the quantity
+  changes, so it is visible beforehand — but it is not preserved. Untouched items are
+  safe, because the key is then omitted entirely. Sending the per-line `total` the API
+  already supports would fix it; that is a deliberate open question, not an oversight.
+- **Restore is not reachable from the app.** Trashed orders are excluded from
+  `GET /orders`, so there is no route to a trashed order and nowhere to put a restore
+  action. `POST /orders/{id}/restore` exists and is verified; the app simply cannot
+  reach it. Restoring means wp-admin until the list grows a trash filter.
 - **`GET /orders?search=` does not resolve order ids.** It handles phone and customer
   name only. A numeric term that is not a valid BD mobile falls through to the name
   search, so typing an order number returns unrelated name matches rather than that

@@ -18,9 +18,9 @@ const PER_PAGE = 20
 const SEARCH_DEBOUNCE_MS = 300
 
 /**
- * @param {{ onSignOut: () => void }} options
+ * @param {{ onSignOut: () => void, onOpenOrder: (id: number) => void, onNewOrder: () => void }} options
  */
-export function OrdersView({ onSignOut }) {
+export function OrdersView({ onSignOut, onOpenOrder, onNewOrder }) {
   const state = {
     page: 1,
     search: '',
@@ -74,7 +74,24 @@ export function OrdersView({ onSignOut }) {
     const name = String(order.customer_name || '').trim()
     const phone = String(order.phone || '').trim()
 
-    return el('article', { class: 'card' }, [
+    const open = () => onOpenOrder(order.id)
+
+    // The whole card is the tap target, not a small "edit" link: this is used
+    // one-handed on a phone. role/tabindex/keydown rather than a <button>
+    // wrapper, because the phone number below is itself a link and interactive
+    // elements cannot nest.
+    const card = el('article', {
+      class: 'card card-tappable',
+      role: 'button',
+      tabindex: 0,
+      'aria-label': `Open order ${order.number}`,
+      onClick: open,
+      onKeydown: (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return
+        event.preventDefault()
+        open()
+      },
+    }, [
       el('div', { class: 'card-top' }, [
         el('span', { class: 'order-number', text: `#${order.number}` }),
         // status_label is display-only; status is the key. Slug drives the
@@ -85,7 +102,17 @@ export function OrdersView({ onSignOut }) {
         }),
       ]),
       el('p', { class: 'customer', text: name || 'No name' }),
-      phone ? el('p', { class: 'phone' }, [el('a', { href: `tel:${phone}`, text: phone })]) : null,
+      // Tapping the number dials rather than opening the order, so the click
+      // must not reach the card's handler.
+      phone
+        ? el('p', { class: 'phone' }, [
+            el('a', {
+              href: `tel:${phone}`,
+              text: phone,
+              onClick: (event) => event.stopPropagation(),
+            }),
+          ])
+        : null,
       el('div', { class: 'card-bottom' }, [
         el('span', { class: 'total', text: formatMoney(order.total) }),
         el('span', {
@@ -95,6 +122,8 @@ export function OrdersView({ onSignOut }) {
         el('span', { class: 'date', text: formatDateTime(order.date_created) }),
       ]),
     ])
+
+    return card
   }
 
   function renderPager() {
@@ -229,9 +258,20 @@ export function OrdersView({ onSignOut }) {
     el('div', { class: 'filters' }, [searchInput, statusSelect]),
   ])
 
+  // Fixed rather than in the header: it stays in thumb reach on a phone, and
+  // the header is already carrying a search box and a filter.
+  const newOrderButton = el('button', {
+    type: 'button',
+    class: 'fab',
+    text: '+ New',
+    'aria-label': 'New order',
+    onClick: onNewOrder,
+  })
+
   const view = el('div', { class: 'orders' }, [
     header,
     el('main', { class: 'orders-main' }, [statusNode, listNode, pager]),
+    newOrderButton,
   ])
 
   load()
