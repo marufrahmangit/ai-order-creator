@@ -2,13 +2,17 @@
 
 Working brief for resuming this project cold. Present state only — git log is the history.
 
-Plugin header: **Order Ops v6.3**, Updated 2026-09-29. Live runs v4.9. Staging runs
-**6.2**. Steps 3, 4 and 5 are verified against staging, the shell confirmed in a browser,
-and **CORS is fully verified in both directions**. **6.3 is committed but NOT uploaded**:
-it is a performance fix to `/products` hydration, and `timing_ms` on staging is what will
-confirm or refute it. **Upload 6.3, compare `timing_ms`, then step 6** (create/edit form
-with the product picker). The app is still served from `npm run dev`; nothing has been
-deployed to a subdomain yet.
+Plugin header: **Order Ops v6.3**, Updated 2026-10-01. Live runs v4.9. Staging runs
+**6.3**, and **everything in it is verified**: steps 1-5 are done, the whole API layer is
+signed off, CORS works in both directions, and the PWA shell is confirmed in a browser.
+**No gate remains. Step 6 (the create/edit form and product picker) is the work in
+hand.** The app is still served from `npm run dev`; nothing has been deployed to a
+subdomain yet.
+
+**`/products` is done being optimised.** Server-side search now costs 40-90ms against
+several hundred ms of round-trip latency, so network dominates and further server-side
+work on it is not worthwhile. Remaining latency belongs to the step 6 picker, hidden
+client-side.
 
 ## Goal
 
@@ -153,6 +157,12 @@ parser becomes one feature inside it, not the whole tool.
   upstream or a status registered by another plugin propagates without an app rebuild.
   Money formatting likewise uses the endpoint's `currency` and `price_decimals` rather
   than assuming BDT and 2dp. Cache the response for the session, not per screen.
+- **There is no relevance SCORING for text searches, deliberately.** A text term's
+  matches are ordered by price, not by how well they match. This was an open question
+  until 6.2 and is now settled: price is the axis staff think in, and with one product
+  per price point the price order is stable and meaningful. Compound terms cover the
+  rest — a staff member narrows "three" to "three 2500" rather than scrolling. Reopen
+  only if a catalogue with several products at the same price appears.
 - **Key on `code`, never on `label`. Labels are display-only.** Confirmed at 6.1: some
   WooCommerce BD state labels carry trailing whitespace (`"Faridpur "`, `"Manikganj "`).
   That comes from WooCommerce's own list, not from this plugin, and is deliberately not
@@ -250,19 +260,21 @@ parser becomes one feature inside it, not the whole tool.
 | 3a | Read endpoints — orders list, single order | done, **verified on staging** | 5.2 |
 | 3b | Read endpoints — product search | done, **verified on staging** at 5.6 | 5.3–5.6 |
 | 3c | Price-first product search + 3-char minimum | done, **verified on staging** at 5.7 | 5.7 |
-| 3d | Price-ascending ordering, compound terms, `fields=picker`, `timing_ms` | done, on staging; **timings measured**, output checks not reported | 6.2 |
-| 3e | Bulk-prime post/meta/term caches before product hydration | done, **not yet on staging** | 6.3 |
+| 3d | Price-ascending ordering, compound terms, `fields=picker`, `timing_ms` | done, **verified on staging** at 6.2 | 6.2 |
+| 3e | Bulk-prime post/meta/term caches before product hydration | done, **verified on staging** at 6.3 | 6.3 |
 | 4a | `POST /parse` — text in, structured data out, writes nothing | done, **verified on staging** at 5.8 | 5.8 |
 | 4b | Write endpoints — create, update, trash, restore | done, **verified on staging** at 5.9 | 5.9 |
 | 4c | `GET /meta` — states, statuses, currency for the app | done, **verified on staging** at 6.1 | 6.0 |
 | 4d | `POST /token` — login; account password → app password | done, **verified on staging** at 6.1 | 6.1 |
 | 5 | PWA shell — subdomain, auth, order list | auth + list done, **verified in a browser** against 6.1; **subdomain not yet stood up** | — |
-| 6 | Create/edit form with product picker | not started | — |
+| 6 | Create/edit form with product picker | **next** | — |
 | 7 | Manifest, service worker, install prompt | not started | — |
 
-**Steps 3 and 4 are complete** — 3a–3c at 5.6/5.7, 4a at 5.8, 4b at 5.9, all verified;
-4c (`GET /meta`, 6.0) and 4d (`POST /token`, 6.1) await their first staging test. Step 5
-begins the PWA itself.
+**The API layer is complete and signed off.** Step 3 at 5.6/5.7 with 3d/3e verified at
+6.2/6.3, step 4a at 5.8, 4b at 5.9, 4c and 4d at 6.1 — every endpoint confirmed by real
+requests against staging. Step 5, the PWA shell, is verified in a browser. Nothing in
+the API is waiting on anything, so step 6 is pure app work unless the picker turns up a
+need the endpoints do not already serve.
 
 Step 3b shipped over 5.3 product search, 5.4 product status fix (private catalogue) +
 response envelope + limit fallback, 5.5 variation status fix, 5.6 sanitize-callback
@@ -361,16 +373,48 @@ origin works from a browser (see step 5 below), and a mismatched `Origin` is ref
 otherwise reflect for any origin, so no `Access-Control-Allow-Origin` comes back.
 That second half is what makes the App Origin setting a control rather than decoration.
 
-`/products` at 6.2, measured on staging:
+`/products` — **all 6.2 output behaviour confirmed row by row on staging**, from the
+actual responses:
 
-- `timing_ms` is **47ms for a numeric search** and **438ms for a broad text search**
-  (`?search=three`, roughly 180 candidates). The gap is the sort window: ordering by
-  price needs every candidate hydrated first, and at 6.2 each one was a separate
-  `wc_get_product()`. 6.3 primes the caches to fix it — unverified until uploaded.
-- The behavioural checks (ordering output, compound intersections, `fields=picker` key
-  set, default shape unchanged) were **not reported back**, so they stay under
-  Unverified. The endpoint demonstrably runs at 6.2; what it returns has not been
-  confirmed row by row.
+- `?search=three` returns **cheapest first**: 900, 950, 1000, 1050, 1100, 1150, 1200,
+  1250 … with **10000 last**. The string-sort defect that put 10000 second is gone. This
+  is the whole reason 6.2 existed.
+- `?search=three 2500` returns **exactly one row at 2500.00**, and `?search=2500 three`
+  returns the **identical row** — compound term order genuinely does not matter.
+- `?search=batik gauze 250` returns **one row at 250.00**, matching both text parts and
+  the price, so multi-part text alongside a figure works.
+- `?search=three 99999` returns an **empty list**. The empty-intersection rule holds with
+  no silent widening — the behaviour that was most at risk of being quietly "helpful".
+- `?search=three 2500 1000` returns **empty**, correctly falling back to text search on
+  two numeric parts rather than guessing which figure is the price.
+- `?fields=picker` returns **exactly `id`, `name`, `sku`, `price`, `is_in_stock`** and
+  nothing else.
+
+**6.3's cache priming worked, and the prediction held on both counts** — which matters,
+because the second count is what makes the first one mean something:
+
+- **Broad text (`?search=three`): 438ms → 88ms**, a 5× improvement, inside the predicted
+  60-150ms range. `_prime_post_caches($ids, true, true)` was correctly targeted, and
+  **the term flag earned its place**: `get_product_type()` calls
+  `get_the_terms($id, 'product_type')` and `read_visibility()` reads
+  `product_visibility`, so priming posts and meta alone would have left a query per
+  product behind.
+- **Numeric (`?search=2500`): 47ms → 40ms**, essentially unchanged, exactly as predicted.
+  This is the control. The numeric path hydrates few objects, so most of its cost is the
+  two search queries, which 6.3 does not touch. Had it dropped sharply too, the
+  diagnosis would have been wrong and the fix would have been working by accident.
+- **WooCommerce has no product cache-priming helper.** `WC_Product_Data_Store_CPT` offers
+  only `clear_caches()`, which does the opposite; orders got
+  `WC_Order_Data_Store_CPT::prime_caches_for_orders()` but products were never given an
+  equivalent. So core's `_prime_post_caches()` is the correct tool, not a workaround. It
+  is called behind `function_exists()` — it carried an underscore until WordPress 6.1
+  made it public API — so an older core falls back to pre-6.3 per-id hydration rather
+  than failing.
+- **Server-side product search is now 40-90ms against several hundred ms of observed
+  round-trip latency to staging, so network dominates.** Further server-side
+  optimisation of `/products` is **not worthwhile** — measure before reopening it. The
+  latency a staff member actually feels is now the network, and the place to hide it is
+  client-side caching in the step 6 picker.
 
 Step 5 — the PWA shell, confirmed in a browser against plugin 6.1, served from
 `npm run dev` at `http://localhost:5173` with `ai_app_origin` set to that exact origin:
@@ -408,37 +452,12 @@ that path does not pass through `api.js`'s `try`/`catch` around `fetch()`.
   missed; and variation-level SKUs are findable only by exact match via
   `wc_get_product_id_by_sku()`, the parent-first search never reaching a partial one.
   Parent/simple SKU partial matching IS verified.
-- ~~No relevance ranking for TEXT product searches.~~ **Resolved in 6.2** by ordering
-  results by price ascending rather than by title, and by compound terms, which let a
-  staff member narrow "three" to "three 2500" instead of scrolling. There is still no
-  relevance *scoring* — a text term's matches are ordered by price, not by how well they
-  match — and that is now a deliberate choice rather than an open question: price is the
-  axis staff think in, and this catalogue has one product per price point, so price
-  ordering is effectively a stable, meaningful sort. Revisit only if a catalogue with
-  several products at one price appears.
 - **`GET /orders?search=` does not resolve order ids.** It handles phone and customer
   name only. A numeric term that is not a valid BD mobile falls through to the name
   search, so typing an order number returns unrelated name matches rather than that
   order. **Decided: id resolution is not needed** — staff search by phone, which works
   today. Kept here rather than deleted, because the fall-through is still a latent
   surprise if anyone does type an order number into the list search.
-- **What `/products` RETURNS at 6.2 is still unconfirmed**, even though the endpoint
-  runs and its timings are measured. Still to check on staging, row by row:
-  `search=three` (cheapest first, 10000 last), `search=2500` (Block A then Block B),
-  `search=three 2500` and `search=2500 three` (identical intersections),
-  `search=three 2500 1000` (falls back to text), `search=three 99999` (empty, NOT
-  widened), `fields=picker` (exactly five keys), and the default shape (nine keys,
-  unchanged). There is no PHP binary in the Claude Code environment, so the only local
-  evidence is structural plus a PORT of the pure logic into Python (52 assertions), which
-  can catch a wrong rule but not a PHP syntax or API error.
-- **The 6.3 priming gain is predicted, not measured.** Expected: the text path's ~180
-  hydrations stop costing ~540 database round-trips and cost about three, so **438ms
-  should fall sharply** — somewhere in the 60–150ms range, the remainder being PHP
-  object construction rather than queries. The **numeric path should barely move from
-  47ms**: it hydrates only a handful of objects, so most of its time is the two
-  full-catalogue search queries, which 6.3 does not touch. If the text figure does not
-  drop, the cost was never in hydration and this fix is aimed at the wrong thing —
-  `timing_ms` settles it either way.
 - **Thumbnails would reintroduce a per-row lookup.** `ai_rest_product_thumbnail()` calls
   `wp_get_attachment_image_url()`, which loads an ATTACHMENT post that priming the
   product ids does not cover. Harmless today — every thumbnail in this store is null, so
@@ -448,13 +467,17 @@ that path does not pass through `api.js`'s `try`/`catch` around `fetch()`.
 - **Block B's queries run even when Block A already fills the limit.** Blocks are
   resolved eagerly, so a numeric search always costs the name/SKU queries too, even when
   its price matches alone would fill the page. Kept eager because it makes the query
-  count per path fixed and predictable; making it lazy is a safe, unobservable
-  optimisation if the extra query ever shows up in `timing_ms`.
-- **`/products` query counts**, by static reading of 6.2 (SQL-issuing calls, excluding
-  per-product object loads): plain text **3** (1 exact-SKU lookup + 2 name/SKU);
-  plain numeric **4** (1 + 1 price + 2 name/SKU); compound with one text part **3**
-  (no SKU lookup + 1 price + 2), rising by 2 per extra text part, and collapsing to
-  **1** when the price part matches nothing, because the intersection short-circuits.
+  count per path fixed and predictable. **Not worth changing**: the numeric path measures
+  40ms against several hundred ms of network, so the saving would be invisible. Recorded
+  only so the next reader knows it is a choice rather than an oversight.
+- **`/products` search-query counts**, by static reading (unchanged by 6.3): plain text
+  **3** (1 exact-SKU lookup + 2 name/SKU); plain numeric **4** (1 + 1 price + 2
+  name/SKU); compound with one text part **3** (no SKU lookup + 1 price + 2), rising by
+  2 per extra text part, and collapsing to **1** when the price part matches nothing,
+  because the intersection short-circuits. **On top of those, 6.3 adds up to three
+  priming queries per hydration loop** — post, meta and object-term — which is the whole
+  point: three queries in place of up to three *per product*. They are flat, so they do
+  not scale with how many candidates a term matches.
   So compound costs no more than the numeric path — one fewer, in fact.
 - **The `/token` rate limit has never been exercised.** The happy path is verified;
   the throttle is not. Untested: that 5 wrong passwords for one username produce a 429
