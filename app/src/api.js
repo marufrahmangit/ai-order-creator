@@ -298,6 +298,17 @@ export function trashOrder(id, signal) {
   return request(`/orders/${encodeURIComponent(id)}/trash`, { method: 'POST', signal })
 }
 
+/**
+ * POST /orders/{id}/restore - returns the full order object at its pre-trash
+ * status, not an { order, warnings } envelope.
+ *
+ * The counterpart to trashOrder(). Nothing in this app can force-delete: the
+ * API has no such route and it should stay that way.
+ */
+export function restoreOrder(id, signal) {
+  return request(`/orders/${encodeURIComponent(id)}/restore`, { method: 'POST', signal })
+}
+
 /** GET /ping - auth and CORS smoke test. */
 export function ping(signal) {
   return request('/ping', { signal })

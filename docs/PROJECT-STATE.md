@@ -5,8 +5,13 @@ Working brief for resuming this project cold. Present state only — git log is 
 Plugin header: **Order Ops v6.5**, Updated 2026-10-02. Live runs v4.9. Staging runs
 **6.4**, against which the whole API layer is verified — steps 1-5 done, order fees
 included, CORS working in both directions, and the PWA shell confirmed in a browser.
-**6.5 is committed but NOT uploaded**: two parser fixes (bulleted messages, Tongi →
-Gazipur), verified locally against a real PHP but not on staging.
+**6.5 and 6.6 are committed but NOT uploaded**: the 6.5 parser fixes (bulleted
+messages, Tongi → Gazipur) and 6.6's `status=trash` support, both verified locally but
+not on staging. The app's trash view (step 6c) is built and likewise unverified.
+
+**Custom order statuses are unusable through the API right now** — see the open item.
+They reach wp-admin but not REST, so `POST /orders` rejects `returned` with
+`aioc_invalid_status`. The cause is outside this repo.
 **Step 6a (the order form and its line-items list) is BUILT but has never run against
 staging in a browser.** Step 6b, the product picker, is next. The app is still served
 from `npm run dev`; nothing has been deployed to a subdomain yet.
@@ -150,6 +155,28 @@ parser becomes one feature inside it, not the whole tool.
   write path. Auto-only; no manual override by design.
 - All WooCommerce statuses are settable from the app, read from
   `wc_get_order_statuses()` rather than hardcoded.
+- **`trash` is not a workflow status and is never presented as one.** It is WordPress's
+  own post status, absent from `wc_get_order_statuses()` and from `GET /meta`, so it has
+  no place in the status filter beside Processing and Completed — a custom status such as
+  `wc-returned` does belong there. `GET /orders?status=trash` is accepted as an explicit
+  filter and reached through its own view in the app.
+  - **HPOS stores trash UNPREFIXED** (`'status' => 'trash'`) while workflow statuses are
+    stored prefixed (`wc-completed`). `OrdersTableQuery::sanitize_status()` only adds the
+    prefix when the prefixed form is registered and otherwise passes the value straight
+    through, so `wc-trash` reaches SQL verbatim and matches nothing — an empty list, not
+    an error. Accept both spellings at the boundary; query with the bare one.
+  - With no `status` param the default is unchanged and still excludes trash.
+- **A trashed row cannot be opened for editing.** Editing a trashed order is not a
+  sensible flow and the API would happily accept the write, so the restriction lives in
+  the app: the trash view's rows have no tap target, only Restore. Restore first, then
+  edit.
+- **No force-delete exists anywhere, in the API or the app, and should not.** Restore is
+  the only counterpart to trash. Permanent deletion stays a wp-admin action.
+- **A status label always comes from whoever registered the status.**
+  `wc_get_order_status_name()` returns the bare slug for `trash`, so
+  `ai_rest_order_status_label()` falls back to the registered POST status label and the
+  client gets `Trash`. An unlabelled status still degrades to its slug rather than being
+  invented.
 - **Fees are first-class, and a DISCOUNT IS A NEGATIVE FEE.** `fee_lines` is readable and
   writable on the order endpoints, and nothing in this plugin clamps or `abs()`es a fee
   total in either direction. Without fees the order `total` is not reconcilable from
@@ -383,6 +410,7 @@ parser becomes one feature inside it, not the whole tool.
 | 5 | PWA shell — subdomain, auth, order list | auth + list done, **verified in a browser** against 6.1; **subdomain not yet stood up** | — |
 | 6a | Order form — fields, paste-and-parse, line items, totals, save, trash | built, **unverified in a browser** | — |
 | 6b | Product picker — replaces the temporary add-by-id control | **next** | — |
+| 6c | Trash view and restore | built, **unverified in a browser** | 6.6 |
 | 7 | Manifest, service worker, install prompt | not started | — |
 
 **The API layer is complete and signed off.** Step 3 at 5.6/5.7 with 3d/3e verified at
@@ -601,6 +629,53 @@ parses clean under `php -l`, which had never been checked before.
   missed; and variation-level SKUs are findable only by exact match via
   `wc_get_product_id_by_sku()`, the parent-first search never reaching a partial one.
   Parent/simple SKU partial matching IS verified.
+- **Custom order statuses never reach REST, so the app cannot use them.** Confirmed on
+  staging: "Not Picked Yet", "Pending Investigation", "Investigation Processing" and
+  "Returned" appear in wp-admin's single-order dropdown and in the orders-list bulk
+  actions, but `GET /meta` returns only the eight WooCommerce defaults. This is worse
+  than a cosmetic gap: `POST /orders` validates against `wc_get_order_statuses()`, so
+  setting an order to `returned` through the API fails with `aioc_invalid_status`.
+  - **It is not our code.** All three of our call sites invoke `wc_get_order_statuses()`
+    live, per request — `meta.php`, `orders.php` and `orders-write.php` — and nothing in
+    the REST layer caches a status list (the only transients are the `/token` throttle
+    buckets). Route callbacks run on `rest_api_init`, which fires from `parse_request`,
+    long after both `plugins_loaded` and `init`, so a filter registered at either point
+    is in place well before any handler runs. Load order is not the problem.
+  - **The filter pipeline itself demonstrably works during REST.** Core
+    `wc_get_order_statuses()` returns SEVEN statuses; the eighth, `checkout-draft`, is
+    added by WooCommerce Blocks' `DraftOrders` through the `wc_order_statuses` filter.
+    `/meta` returns eight, which proves filter callbacks are applied on a REST request.
+    What is missing is specifically the snippet's callback.
+  - **Code Snippets 3.9.6 should be executing it.** Read from the 3.9.6 source:
+    `Evaluate_Functions::__construct()` hooks `plugins_loaded` at priority 1, which fires
+    on every request including REST, and `evaluate_db_snippets()` builds its scope list as
+    `['global', 'single-use', is_admin() ? 'admin' : 'front-end']` — a "Run everywhere"
+    snippet is scope `global` and is therefore included regardless of `is_admin()`. There
+    is no REST bail-out in `evaluate_early()`; the only JSON-specific gate,
+    `get_currently_editing_snippet()`, skips a snippet solely while the request is to
+    Code Snippets' OWN REST route for that snippet. Cache staleness is also out:
+    `clean_active_snippets_cache()` flushes the front-end and admin scope groups both.
+  - **So the remaining explanations are all inside the snippet, and it has not been
+    read.** Most likely: the stored scope is not actually `global`; or the snippet throws
+    when executed outside wp-admin and Code Snippets records a code error and skips it;
+    or `boot()` registers the filter behind an admin-only hook. Two cheap checks settle
+    it: (1) put `error_log('OIS ran; admin=' . (int) is_admin());` at the top of the
+    snippet, request `/wp-json/aioc/v1/meta`, and read the log — that answers whether it
+    executes at all; (2) look for an error flag on the snippet in the Code Snippets list.
+    **Nothing is hardcoded or duplicated into this plugin to work around it.**
+- **6.6 and the trash view have not run anywhere.** Unverified: that
+  `GET /orders?status=trash` actually returns trashed orders under HPOS (the reasoning is
+  from the WooCommerce source, not a request), that `status_label` comes back as `Trash`,
+  that the default list still excludes trash, that Restore removes the row, and that the
+  empty state shows. Staging's trash still holds the step 4b test orders, so there is
+  data to look at.
+- **The orders list may include `checkout-draft` carts.** Our default status arg is
+  `array_keys(wc_get_order_statuses())`, which INCLUDES `wc-checkout-draft`, whereas
+  WooCommerce's own empty/'any' handling excludes anything flagged
+  `exclude_from_search` — `checkout-draft` among them. Invisible on this store because
+  the storefront is unused and there are no abandoned carts, so nothing to fix today, but
+  the default is wider than WooCommerce's. The app filters the status out of its dropdown;
+  the list query does not.
 - **6.5 has not run on staging.** The parser fixes are verified locally against a real
   PHP, which is far better evidence than this project has had before, but the Groq
   fallback is unreachable locally and only staging exercises `POST /parse` end to end.

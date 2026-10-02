@@ -1,12 +1,23 @@
 /**
- * Order list.
+ * Order list, in two modes.
  *
- * GET /orders, newest first, with a search box and a status filter. Search
- * resolves a phone number or a customer name - NOT an order id, which is a
- * recorded decision: staff search by phone.
+ * 'orders' - GET /orders, newest first, with a search box and a status filter.
+ * 'trash'  - GET /orders?status=trash, the same rendering, with a Restore
+ *            action per row instead of a tap target.
+ *
+ * One view rather than two because the row, the pager, the search and the
+ * abort discipline are identical; only the query and what a row DOES differ.
+ *
+ * Trash is deliberately NOT an entry in the status filter. It is not a
+ * workflow state and has no business sitting next to Processing and Completed -
+ * the API makes the same distinction, and `trash` never appears in /meta's
+ * status list.
+ *
+ * Search resolves a phone number or a customer name, NOT an order id, which is
+ * a recorded decision: staff search by phone.
  */
 
-import { fetchOrders } from '../api.js'
+import { fetchOrders, restoreOrder } from '../api.js'
 import { getCredential } from '../auth.js'
 import { orderStatuses } from '../meta.js'
 import { formatMoney, formatDateTime } from '../format.js'
@@ -18,15 +29,34 @@ const PER_PAGE = 20
 const SEARCH_DEBOUNCE_MS = 300
 
 /**
- * @param {{ onSignOut: () => void, onOpenOrder: (id: number) => void, onNewOrder: () => void }} options
+ * @param {{
+ *   mode?: 'orders'|'trash',
+ *   onSignOut: () => void,
+ *   onOpenOrder?: (id: number) => void,
+ *   onNewOrder?: () => void,
+ *   onShowTrash?: () => void,
+ *   onClose?: () => void,
+ * }} options
  */
-export function OrdersView({ onSignOut, onOpenOrder, onNewOrder }) {
+export function OrdersView({
+  mode = 'orders',
+  onSignOut,
+  onOpenOrder,
+  onNewOrder,
+  onShowTrash,
+  onClose,
+}) {
+  const isTrash = mode === 'trash'
+
   const state = {
     page: 1,
     search: '',
-    status: '',
+    // In trash mode the status is fixed and the filter is not offered.
+    status: isTrash ? 'trash' : '',
     totalPages: 1,
     total: 0,
+    /** The rows currently on screen, so a restore can drop one without refetching. */
+    orders: [],
   }
 
   /**
@@ -55,7 +85,8 @@ export function OrdersView({ onSignOut, onOpenOrder, onNewOrder }) {
   const statusSelect = el('select', { class: 'status-select', 'aria-label': 'Filter by status' }, [
     el('option', { value: '', text: 'All statuses' }),
     // Populated from /meta, never hardcoded - and checkout-draft is already
-    // filtered out by orderStatuses().
+    // filtered out by orderStatuses(). 'trash' is absent from /meta by design
+    // and is reached through its own view, not from here.
     ...orderStatuses().map((status) => el('option', { value: status.slug, text: status.label })),
   ])
 
@@ -70,28 +101,11 @@ export function OrdersView({ onSignOut, onOpenOrder, onNewOrder }) {
     statusNode.textContent = message
   }
 
-  function renderOrderCard(order) {
+  function cardBody(order) {
     const name = String(order.customer_name || '').trim()
     const phone = String(order.phone || '').trim()
 
-    const open = () => onOpenOrder(order.id)
-
-    // The whole card is the tap target, not a small "edit" link: this is used
-    // one-handed on a phone. role/tabindex/keydown rather than a <button>
-    // wrapper, because the phone number below is itself a link and interactive
-    // elements cannot nest.
-    const card = el('article', {
-      class: 'card card-tappable',
-      role: 'button',
-      tabindex: 0,
-      'aria-label': `Open order ${order.number}`,
-      onClick: open,
-      onKeydown: (event) => {
-        if (event.key !== 'Enter' && event.key !== ' ') return
-        event.preventDefault()
-        open()
-      },
-    }, [
+    return [
       el('div', { class: 'card-top' }, [
         el('span', { class: 'order-number', text: `#${order.number}` }),
         // status_label is display-only; status is the key. Slug drives the
@@ -121,7 +135,68 @@ export function OrdersView({ onSignOut, onOpenOrder, onNewOrder }) {
         }),
         el('span', { class: 'date', text: formatDateTime(order.date_created) }),
       ]),
+    ]
+  }
+
+  function renderOrderCard(order) {
+    const open = () => onOpenOrder(order.id)
+
+    // The whole card is the tap target, not a small "edit" link: this is used
+    // one-handed on a phone. role/tabindex/keydown rather than a <button>
+    // wrapper, because the phone number below is itself a link and interactive
+    // elements cannot nest.
+    return el('article', {
+      class: 'card card-tappable',
+      role: 'button',
+      tabindex: 0,
+      'aria-label': `Open order ${order.number}`,
+      onClick: open,
+      onKeydown: (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return
+        event.preventDefault()
+        open()
+      },
+    }, cardBody(order))
+  }
+
+  /**
+   * A trashed row. Deliberately NOT tappable: editing a trashed order is not a
+   * sensible flow, and the API would accept the write, so the restriction has
+   * to be here. Restore first, then edit.
+   */
+  function renderTrashedCard(order) {
+    const restoreButton = el('button', {
+      type: 'button',
+      class: 'button',
+      text: 'Restore',
+      'aria-label': `Restore order ${order.number}`,
+    })
+
+    const card = el('article', { class: 'card' }, [
+      ...cardBody(order),
+      el('div', { class: 'card-actions' }, [restoreButton]),
     ])
+
+    restoreButton.addEventListener('click', async () => {
+      restoreButton.disabled = true
+      restoreButton.textContent = 'Restoring…'
+
+      try {
+        await restoreOrder(order.id)
+
+        // Drop the row locally rather than refetching the list: the server has
+        // already told us it succeeded, and a refetch would cost a round trip
+        // to learn what we know.
+        state.orders = state.orders.filter((candidate) => candidate.id !== order.id)
+        state.total = Math.max(0, state.total - 1)
+        renderList()
+      } catch (error) {
+        if (error?.status === 401) return
+        restoreButton.disabled = false
+        restoreButton.textContent = 'Restore'
+        setMessage(error?.message || 'Could not restore that order.', 'error')
+      }
+    })
 
     return card
   }
@@ -134,6 +209,34 @@ export function OrdersView({ onSignOut, onOpenOrder, onNewOrder }) {
     pageLabel.textContent = `Page ${state.page} of ${state.totalPages}`
     prevButton.disabled = state.page <= 1
     nextButton.disabled = state.page >= state.totalPages
+  }
+
+  function emptyMessage() {
+    if (state.search) return 'No orders match that search.'
+    if (isTrash) return 'The trash is empty.'
+    return state.status ? 'No orders match that filter.' : 'No orders yet.'
+  }
+
+  function countMessage() {
+    if (isTrash) {
+      return state.total === 1 ? '1 order in the trash' : `${state.total} orders in the trash`
+    }
+    return state.total === 1 ? '1 order' : `${state.total} orders`
+  }
+
+  /** Renders whatever is in state.orders. Never fetches. */
+  function renderList() {
+    clear(listNode)
+
+    if (state.orders.length === 0) {
+      setMessage(emptyMessage())
+      renderPager()
+      return
+    }
+
+    listNode.append(...state.orders.map(isTrash ? renderTrashedCard : renderOrderCard))
+    setMessage(countMessage())
+    renderPager()
   }
 
   async function load() {
@@ -166,21 +269,8 @@ export function OrdersView({ onSignOut, onOpenOrder, onNewOrder }) {
         return load()
       }
 
-      clear(listNode)
-
-      if (orders.length === 0) {
-        setMessage(
-          state.search || state.status
-            ? 'No orders match that search.'
-            : 'No orders yet.',
-        )
-        renderPager()
-        return
-      }
-
-      listNode.append(...orders.map(renderOrderCard))
-      setMessage(state.total === 1 ? '1 order' : `${state.total} orders`)
-      renderPager()
+      state.orders = orders
+      renderList()
     } catch (error) {
       // A superseded request is not a failure and must not overwrite the list
       // or the message the newer request is about to set.
@@ -244,35 +334,44 @@ export function OrdersView({ onSignOut, onOpenOrder, onNewOrder }) {
 
   const credential = getCredential()
 
+  const headerRow = isTrash
+    ? el('div', { class: 'header-row' }, [
+        el('button', { type: 'button', class: 'button link', text: '‹ Orders', onClick: onClose }),
+        el('h1', { class: 'app-title', text: 'Trash' }),
+      ])
+    : el('div', { class: 'header-row' }, [
+        el('h1', { class: 'app-title', text: 'Orders' }),
+        el('div', { class: 'header-actions' }, [
+          // A link beside the title, not an option in the status filter.
+          el('button', { type: 'button', class: 'button link', text: 'Trash', onClick: onShowTrash }),
+          el('button', { type: 'button', class: 'button link', text: 'Sign out', onClick: onSignOut }),
+        ]),
+      ])
+
   const header = el('header', { class: 'app-header' }, [
-    el('div', { class: 'header-row' }, [
-      el('h1', { class: 'app-title', text: 'Orders' }),
-      el('button', {
-        type: 'button',
-        class: 'button link',
-        text: 'Sign out',
-        onClick: onSignOut,
-      }),
-    ]),
-    el('p', { class: 'signed-in-as', text: `Signed in as ${credential?.displayName || ''}` }),
-    el('div', { class: 'filters' }, [searchInput, statusSelect]),
+    headerRow,
+    isTrash
+      ? el('p', { class: 'signed-in-as', text: 'Restore an order to edit it. Nothing here is deleted permanently.' })
+      : el('p', { class: 'signed-in-as', text: `Signed in as ${credential?.displayName || ''}` }),
+    // The status filter is pointless in trash mode - the status is the view.
+    el('div', { class: 'filters' }, isTrash ? [searchInput] : [searchInput, statusSelect]),
   ])
 
-  // Fixed rather than in the header: it stays in thumb reach on a phone, and
-  // the header is already carrying a search box and a filter.
-  const newOrderButton = el('button', {
-    type: 'button',
-    class: 'fab',
-    text: '+ New',
-    'aria-label': 'New order',
-    onClick: onNewOrder,
-  })
+  const children = [header, el('main', { class: 'orders-main' }, [statusNode, listNode, pager])]
 
-  const view = el('div', { class: 'orders' }, [
-    header,
-    el('main', { class: 'orders-main' }, [statusNode, listNode, pager]),
-    newOrderButton,
-  ])
+  if (!isTrash) {
+    // Fixed rather than in the header: it stays in thumb reach on a phone, and
+    // the header is already carrying a search box and a filter.
+    children.push(el('button', {
+      type: 'button',
+      class: 'fab',
+      text: '+ New',
+      'aria-label': 'New order',
+      onClick: onNewOrder,
+    }))
+  }
+
+  const view = el('div', { class: 'orders' }, children)
 
   load()
 

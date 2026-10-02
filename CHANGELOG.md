@@ -2,6 +2,14 @@
 
 All notable changes to AI Order Creator are documented in this file.
 
+## 6.6
+
+- **`GET /orders` now accepts `status=trash`**, so the app can offer a trash view. Both `trash` and `wc-trash` are accepted at the boundary and normalized to the bare `trash` for the query.
+  - **HPOS stores it unprefixed.** `OrdersTableDataStore::trash_order()` writes `'status' => 'trash'`, while workflow statuses are stored prefixed (`wc-completed`). That asymmetry is load bearing: `OrdersTableQuery::sanitize_status()` only adds the `wc-` prefix when the prefixed form is a *registered* status and otherwise passes the value through verbatim — so `wc-trash` would have reached the SQL unchanged and matched no rows, returning an empty list rather than an error. Accepting both spellings and querying with the bare one is what avoids that silent failure.
+  - **Default behaviour is unchanged.** With no `status` param the explicit registered list is still passed, and trashed orders stay out of the results.
+  - **Trash is not a workflow status and is not treated as one.** It is WordPress's own post status, it never appears in `wc_get_order_statuses()` or in `GET /meta`, and it has no business in a filter dropdown next to Processing and Completed. A custom workflow status such as `wc-returned` does belong there.
+- **Added `ai_rest_order_status_label()`.** `wc_get_order_status_name()` returns the bare slug `trash` for a trashed order — its internal "special statuses" map points `wc-trash` at the slug itself rather than at a translated label. The label now falls back to the registered **post** status label, so a trashed order's summary reports `Trash`. Nothing is hardcoded: the string comes from whoever registered the status, which is the rule the district and status lists already follow. A genuinely unlabelled status still degrades to its slug.
+
 ## 6.5
 
 Two parser fixes, both verified by running the real parsing pipeline under a portable PHP with WooCommerce's BD state list stubbed in.

@@ -138,6 +138,26 @@ function showOrders() {
     onSignOut: signOut,
     onOpenOrder: showOrderForm,
     onNewOrder: () => showOrderForm(null),
+    onShowTrash: showTrash,
+  })))
+}
+
+/**
+ * The trash view: the same list, queried with status=trash, with a Restore
+ * action per row and no way into the edit form.
+ *
+ * Reached by its own link rather than by a value in the status filter, because
+ * trash is not a workflow state - the API draws the same line, and `trash`
+ * never appears in /meta's status list. Returning to the list reloads it, so a
+ * restored order shows up there.
+ */
+function showTrash() {
+  beginScreen('trash')
+
+  withMeta(() => mount(OrdersView({
+    mode: 'trash',
+    onSignOut: signOut,
+    onClose: showOrders,
   })))
 }
 

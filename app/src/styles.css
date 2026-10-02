@@ -750,3 +750,25 @@ button {
 .fee-row-foot .field-hint {
   margin: 0;
 }
+
+/* ---------- Trash view ---------- */
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* A trashed row's Restore button. Full width so it is an easy thumb target
+   and unmistakably the row's one action. */
+.card-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.card-actions .button {
+  flex: 1 1 0;
+}

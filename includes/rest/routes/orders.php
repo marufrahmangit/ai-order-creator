@@ -26,6 +26,39 @@ function ai_rest_date($date) {
 }
 
 /**
+ * Display label for an order status.
+ *
+ * wc_get_order_status_name() handles every WooCommerce workflow status, but for
+ * 'trash' it returns the bare slug 'trash' - its internal "special statuses"
+ * map points 'wc-trash' at the slug itself rather than at a translated label.
+ * So fall back to the registered POST status label, which is where WordPress
+ * keeps the translated "Trash".
+ *
+ * Still no hardcoded label anywhere: the string comes from whoever registered
+ * the status, which is the same rule the district and status lists follow.
+ *
+ * @param string $status Unprefixed status slug.
+ * @return string
+ */
+function ai_rest_order_status_label($status) {
+    $status = (string) $status;
+    $label  = (string) wc_get_order_status_name($status);
+
+    // wc_get_order_status_name() returns the slug unchanged when it has no
+    // label for it, which is the signal to look elsewhere.
+    if ($label !== '' && $label !== $status) {
+        return $label;
+    }
+
+    $object = get_post_status_object($status);
+    if ($object && !empty($object->label)) {
+        return (string) $object->label;
+    }
+
+    return $label;
+}
+
+/**
  * Lean list-view representation of an order.
  *
  * @param WC_Order $order
@@ -39,7 +72,7 @@ function ai_rest_prepare_order_summary(WC_Order $order) {
         'number'        => $order->get_order_number(),
         'date_created'  => ai_rest_date($order->get_date_created()),
         'status'        => $status,
-        'status_label'  => wc_get_order_status_name($status),
+        'status_label'  => ai_rest_order_status_label($status),
         'customer_name' => trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name()),
         'phone'         => $order->get_billing_phone(),
         'total'         => ai_rest_money($order->get_total()),
@@ -108,7 +141,7 @@ function ai_rest_prepare_order_detail(WC_Order $order) {
         'number'       => $order->get_order_number(),
         'date_created' => ai_rest_date($order->get_date_created()),
         'status'       => $status,
-        'status_label' => wc_get_order_status_name($status),
+        'status_label' => ai_rest_order_status_label($status),
         'billing'      => [
             'first_name'  => $order->get_billing_first_name(),
             'phone'       => $order->get_billing_phone(),
@@ -131,7 +164,23 @@ function ai_rest_prepare_order_detail(WC_Order $order) {
  *
  * Accepts slugs with or without the 'wc-' prefix. With no filter supplied we
  * pass every registered status explicitly; that list never contains 'trash',
- * which is what keeps trashed orders out of the results in both cases.
+ * which is what keeps trashed orders out of the DEFAULT results - unchanged.
+ *
+ * 'trash' is accepted as an explicit filter so the app can show a trash view,
+ * but it is NOT a workflow status and must not be treated as one: it is
+ * WordPress's own post status, it never appears in wc_get_order_statuses(),
+ * and it has no place in a filter dropdown next to Processing and Completed.
+ * A custom workflow status such as 'wc-returned' does belong there; this does
+ * not.
+ *
+ * HPOS stores it UNPREFIXED. OrdersTableDataStore::trash_order() writes
+ * `'status' => 'trash'`, while workflow statuses are stored prefixed
+ * ('wc-completed'). That asymmetry is load bearing here, because
+ * OrdersTableQuery::sanitize_status() only adds the 'wc-' prefix when the
+ * prefixed form is a registered status and otherwise passes the value through
+ * verbatim - so 'wc-trash' would reach the SQL unchanged and match no rows at
+ * all, returning an empty list rather than an error. Both spellings are
+ * therefore accepted at the boundary and normalized to the bare one here.
  *
  * @param string $status
  * @return array|WP_Error
@@ -142,6 +191,10 @@ function ai_rest_resolve_status_arg($status) {
     $status = trim((string) $status);
     if ($status === '') {
         return $registered;
+    }
+
+    if ($status === 'trash' || $status === 'wc-trash') {
+        return ['trash'];
     }
 
     $normalized = strpos($status, 'wc-') === 0 ? $status : 'wc-' . $status;
