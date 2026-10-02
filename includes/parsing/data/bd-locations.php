@@ -299,6 +299,55 @@ return [
         'রূপনগর' => 'Dhaka',
         'পল্লবী' => 'Dhaka',
         'কলাবাগান' => 'Dhaka',
+        // Gazipur towns. Same area-to-district pattern the Dhaka-city thana
+        // names above already use.
+        //
+        // ORDER MATTERS HERE. ai_extract_state_from_text() takes the FIRST
+        // alias that appears anywhere in the text, with no word boundary, and
+        // iterates in insertion order. 'tongi' is a substring of 'tongibari'
+        // (Munshiganj) and 'tungi' of 'tungipara' (Gopalganj), so those two
+        // longer names are listed FIRST - otherwise adding Tongi would start
+        // misrouting both of them to Gazipur.
+        'tongibari' => 'Munshiganj',
+        'টঙ্গীবাড়ী' => 'Munshiganj',
+        'tungipara' => 'Gopalganj',
+        'টুঙ্গিপাড়া' => 'Gopalganj',
+
+        'tongi' => 'Gazipur',
+        'tongee' => 'Gazipur',
+        'tungi' => 'Gazipur',
+        'tongi bazar' => 'Gazipur',
+        'টঙ্গী' => 'Gazipur',
+        'টংগী' => 'Gazipur',
+        'টঙ্গি' => 'Gazipur',
+        'টংগি' => 'Gazipur',
+        'kaliakair' => 'Gazipur',
+        'kaliakoir' => 'Gazipur',
+        'কালিয়াকৈর' => 'Gazipur',
+        'kapasia' => 'Gazipur',
+        'কাপাসিয়া' => 'Gazipur',
+        'joydebpur' => 'Gazipur',
+        'joydevpur' => 'Gazipur',
+        'জয়দেবপুর' => 'Gazipur',
+        'konabari' => 'Gazipur',
+        'কোনাবাড়ী' => 'Gazipur',
+        // Sreepur and Kaliganj are DELIBERATELY ABSENT: each names an upazila
+        // in several districts (Sreepur in Gazipur and Magura; Kaliganj in
+        // Gazipur, Satkhira, Jhenaidah and Lalmonirhat), so mapping either to
+        // Gazipur would assert a district the text does not state. Both
+        // currently resolve WRONGLY through the fuzzy fallback - 'sreepur' to
+        // Sherpur and 'kaliganj' to Habiganj, each at edit distance 2 - which
+        // is recorded in docs/PROJECT-STATE.md as an open item against the
+        // fuzzy matcher rather than papered over here.
+
+        // Mohakhali is a Dhaka-city area and was missing, while the fuzzy
+        // fallback matched it to 'noakhali' at distance 2 - so a Mohakhali
+        // address was being given a different district, and with it the wrong
+        // flat shipping rate. An exact alias settles it, because the exact
+        // substring pass runs before the fuzzy one.
+        'mohakhali' => 'Dhaka',
+        'মহাখালী' => 'Dhaka',
+
         'agrabad' => 'Chattogram',
         'halishahr' => 'Chattogram',
         'gec circle' => 'Chattogram',

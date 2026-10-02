@@ -23,10 +23,31 @@ function ai_normalize_text($text) {
     // label (e.g. "Dist__Rajshahi", "Phone__01762947511"); treat it the same
     // as a colon so the existing label-matching logic picks it up.
     $text = preg_replace('/_{2,}/u', ': ', $text);
+    // Strip leading UNORDERED list markers. Messages pasted from a phone are
+    // often bulleted, and a leading marker is worse than cosmetic: it sits
+    // between the start of the line and the field label, so the
+    // "(?:^|\n)\s*label" anchors in ai_extract_labeled_field() and
+    // ai_extract_labeled_multiline_field() stop matching and the field is
+    // never extracted at all. The marker then survives into the address.
+    //
+    // Two classes, deliberately treated differently:
+    //
+    // 1. Characters that are ONLY ever bullets - stripped whether or not a
+    //    space follows, since they cannot be anything else.
+    $text = preg_replace('/^[ \t]*[\x{2022}\x{00B7}\x{25E6}\x{25AA}\x{25CF}\x{25AB}\x{2023}\x{2043}\x{2219}\x{00A4}]+[ \t]*/mu', '', $text);
+    // 2. Characters that are bullets ONLY when a space follows: hyphen,
+    //    asterisk, en dash, em dash. The space is what makes it a list marker
+    //    rather than part of the value. Without this condition a line that
+    //    begins with a hyphen-attached number - "-১০৭৯", the exact shape v4.1
+    //    had to fix - would lose its sign and then read as a bare numeric
+    //    segment, which ai_collect_address_candidates() discards outright.
+    //    A hyphen inside a line ("Mirpur-10") is never touched either way.
+    $text = preg_replace('/^[ \t]*[-*\x{2013}\x{2014}][ \t]+/mu', '', $text);
     // Strip leading ordered-list markers like "1." / "2)" from each line (e.g.
     // "1.Name : Nasrin Karim") so they don't get captured as part of a field's
     // value further down the pipeline. Only fires when a letter follows, so
     // real numeric content (phone numbers, postal codes) is never touched.
+    // After the bullet strip, so "• 1. Name: x" loses both.
     $text = preg_replace('/^[ \t]*[0-9]{1,2}[.)][ \t]*(?=[A-Za-z\x{0980}-\x{09FF}])/mu', '', $text);
     $text = preg_replace("/\n{3,}/u", "\n\n", $text);
     return trim((string) $text);
@@ -39,7 +60,12 @@ function ai_clean_line($line) {
     // itself is stripped, so trim it too. Not handled via trim()'s charlist
     // above because that operates byte-by-byte and would corrupt multi-byte
     // UTF-8 sequences.
-    $line = preg_replace('/^[\s\x{0983}]+|[\s\x{0983}]+$/u', '', $line);
+    // Bullet glyphs are trimmed here too, not only at normalize time: one can
+    // sit mid-line ("Name: X / Phone: Y") and be left stranded at the edge of a
+    // segment once the text is split on newlines and commas. No hyphen in this
+    // class - the byte-wise trim above already covers that, and widening it
+    // would reach inside values.
+    $line = preg_replace('/^[\s\x{0983}\x{2022}\x{00B7}\x{25E6}\x{25AA}\x{25CF}\x{25AB}\x{2023}\x{2043}\x{2219}]+|[\s\x{0983}\x{2022}\x{00B7}\x{25E6}\x{25AA}\x{25CF}\x{25AB}\x{2023}\x{2043}\x{2219}]+$/u', '', $line);
     return preg_replace('/\s{2,}/u', ' ', $line);
 }
 
@@ -61,6 +87,11 @@ function ai_get_noise_patterns() {
         // otherwise a bare label line survives as address junk once its
         // value (e.g. the phone number) has been stripped out elsewhere.
         '/^\s*(?:মোবাইল|ফোন|মোবা|নাম্বার|নম্বর|থানা|উপজেলা|জেলা|জিলা|সিটি)\s*[:\-\x{0983}]?\s*$/u',
+        // A segment left holding nothing but list markers or punctuation, which
+        // is what remains of a bulleted line once its label and value have been
+        // taken out (e.g. "- Phone Number: 01778828637" -> "-"). Without this it
+        // survives as an address segment.
+        '/^[\s\x{2022}\x{00B7}\x{25E6}\x{25AA}\x{25CF}\x{25AB}\x{2023}\x{2043}\x{2219}*\-\x{2013}\x{2014}.,;:\x{0983}]+$/u',
         '/\b(?:assign this conversation|view ad|sent by|available|confirm|learn more|reply to an ad|replied to an ad)\b/iu',
         '/\b(?:this chat contains a reply to your ad|please let us know how we can help you|lead stage set to)\b/iu',
         '/\b(?:automated response|cartmix replied|attachment)\b/iu',
@@ -217,6 +248,16 @@ function ai_get_field_start_labels() {
     return [
         'name', 'customer name', 'cust name', 'নাম',
         'phone', 'mobile', 'mob', 'phn', 'ph', 'contact number', 'contact no', 'contact', 'number',
+        // Multi-word phone labels. This list decides where a labeled field's
+        // value STOPS - ai_extract_labeled_multiline_field() keeps absorbing
+        // continuation lines until one of these starts a line - so a missing
+        // variant means the next field gets swallowed into the previous one's
+        // value. "Phone Number: 01778828637" was doing exactly that to the
+        // address, because 'phone' alone cannot match it: the pattern wants a
+        // separator straight after the label, and " Number:" is not one.
+        'phone number', 'phone no', 'phone num',
+        'mobile number', 'mobile no', 'mobile num',
+        'mob number', 'mob no', 'ph number', 'ph no',
         'cell no', 'cell no.', 'cell number', 'cell phone', 'cell', 'num', 'num.',
         'ফোন', 'মোবাইল', 'নাম্বার', 'নম্বর',
         'address', 'adress', 'addres', 'addr', 'add', 'location', 'ঠিকানা', 'এড্রেস',

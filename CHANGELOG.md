@@ -2,6 +2,26 @@
 
 All notable changes to AI Order Creator are documented in this file.
 
+## 6.5
+
+Two parser fixes, both verified by running the real parsing pipeline under a portable PHP with WooCommerce's BD state list stubbed in.
+
+**Leading list markers broke field extraction.** A bulleted message was not merely cosmetic. The marker sits between the start of the line and the field label, so the `(?:^|\n)\s*label` anchors in `ai_extract_labeled_field()` and `ai_extract_labeled_multiline_field()` stopped matching and the field was never extracted at all.
+
+- The cascade, confirmed rather than assumed: for the reported input the name came back **empty** from the deterministic pass, so `ai_collect_address_candidates()` was handed an empty `$name` and `ai_remove_value_all()` returned early without removing anything. That — not a leading bullet spoiling a segment match — is why the customer name leaked into the address. The bullet also survived as a bare trailing segment once the phone digits were stripped out of its line.
+- Markers are stripped as **line prefixes only**, in two classes. Characters that can only ever be bullets (`•` U+2022, `·`, `◦`, `▪`, `●`, `▫`, `‣`, `⁃`, `∙`, `¤`) are stripped whether or not a space follows. Hyphen, asterisk, en dash and em dash are stripped **only when a space follows**, because the space is what makes one a list marker rather than part of the value: a line beginning with a hyphen-attached number (`-১০৭৯`, the exact shape v4.1 had to fix) keeps its sign, and a hyphen inside a line (`Mirpur-10`) is never touched either way.
+- `ai_clean_line()` also trims stray bullet glyphs from either end of a segment, for a bullet that appears mid-line and gets stranded when the text is split. A segment left holding nothing but markers or punctuation is now treated as noise, so it cannot survive as an address segment.
+- **Fixing the bullets exposed a third defect, fixed here too:** `ai_get_field_start_labels()` was missing the multi-word phone labels (`phone number`, `phone no`, `mobile number`, …). That list decides where a labeled field's value *stops*, so `Phone Number: 01778828637` did not register as the start of a new field and the entire phone line was absorbed into the address as a continuation line.
+
+**Tongi now resolves to Gazipur**, with `tongi`, `tongee`, `tungi`, `tongi bazar`, `টঙ্গী`, `টংগী`, `টঙ্গি`, `টংগি`, plus Kaliakair, Kapasia, Joydebpur and Konabari — the same area-to-district pattern the file already uses for Dhaka-city thana names.
+
+- **The reported Jashore mismatch is not about Tongi.** `tongi` matches nothing at all, exactly or fuzzily, which is why it simply failed to resolve. The culprit class is the Levenshtein fallback in `ai_extract_state_from_text()`, which scans every word of 5+ characters against every ASCII alias allowing one edit at 5–6 characters and two at 7+. Real place names misroute through it: **`kishore` → Jashore**, **`mohakhali` → Noakhali**, **`sreepur` → Sherpur**, **`kaliganj` → Habiganj**, **`shibpur` → Sherpur**, each at distance 2.
+- **Mohakhali is now an explicit Dhaka alias.** It was missing while fuzzy-matching Noakhali, so a Mohakhali address was being given the wrong district and with it the wrong flat shipping rate — 150 instead of 80. The exact pass runs before the fuzzy one, so an alias settles it.
+- Adding Tongi required **two substring guards**. The exact pass has no word boundary and takes the first alias in insertion order, and `tongi` is a substring of `tongibari` (Munshiganj) while `tungi` is one of `tungipara` (Gopalganj). Both longer names are now listed *before* the Tongi block, so neither starts resolving to Gazipur.
+- **Sreepur and Kaliganj are deliberately not added.** Each names an upazila in several districts — Sreepur in Gazipur and Magura, Kaliganj in Gazipur, Satkhira, Jhenaidah and Lalmonirhat — so mapping either to Gazipur would assert a district the text never states. Both currently resolve *wrongly* through the fuzzy fallback; that is recorded as an open item against the matcher rather than papered over in the data.
+
+Also backfilled the **4.8** entry, which was present in the plugin header but missing from this file.
+
 ## 6.4
 
 - **Added fee support to the order endpoints, readable and writable.** Fees are used often on this store, including **negative fees as discounts**.
@@ -152,6 +172,10 @@ All notable changes to AI Order Creator are documented in this file.
 - Split the create path into logic and presentation: `ai_create_order_from_data()` in `includes/order-creator.php` now returns an order ID or `WP_Error` and produces no output, while the success/error notices and the debug details table moved to `ai_render_order_result()` in `admin/views/creator-result.php`.
 - Consolidated the flat shipping rates into a single table in `includes/shipping.php` (`ai_get_shipping_rate()`), applied by `ai_apply_shipping()` from both the creator and the order-edit screen hooks.
 - Fixed orders being saved with a total of 0: the create path never called `calculate_totals()`, which applying shipping now does.
+
+## 4.8
+
+- Recognized bare "Number" as a strippable phone label — it was already recognized for extracting the phone value itself, but missing from the separate list used to clean up the leftover label word, so "Number:" survived as junk in the address after its digits were stripped.
 
 ## 4.7
 

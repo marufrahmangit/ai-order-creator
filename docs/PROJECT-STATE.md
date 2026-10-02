@@ -2,10 +2,11 @@
 
 Working brief for resuming this project cold. Present state only — git log is the history.
 
-Plugin header: **Order Ops v6.4**, Updated 2026-10-01. Live runs v4.9. Staging runs
-**6.4**, and **everything in it is verified** — steps 1-5 done, the whole API layer
-signed off including order fees, CORS working in both directions, and the PWA shell
-confirmed in a browser. **No plugin gate remains.**
+Plugin header: **Order Ops v6.5**, Updated 2026-10-02. Live runs v4.9. Staging runs
+**6.4**, against which the whole API layer is verified — steps 1-5 done, order fees
+included, CORS working in both directions, and the PWA shell confirmed in a browser.
+**6.5 is committed but NOT uploaded**: two parser fixes (bulleted messages, Tongi →
+Gazipur), verified locally against a real PHP but not on staging.
 **Step 6a (the order form and its line-items list) is BUILT but has never run against
 staging in a browser.** Step 6b, the product picker, is next. The app is still served
 from `npm run dev`; nothing has been deployed to a subdomain yet.
@@ -100,6 +101,20 @@ parser becomes one feature inside it, not the whole tool.
   `ai_rest_validate_*` wrappers in `rest.php`; `grep "_callback'.*=> '" | grep -v ai_`
   must stay empty.
 - Logic files produce no output. Presentation lives in `admin/views/`.
+- **The parser CAN be run locally now, and the plugin CAN be linted.** There is no
+  system PHP, but a portable one drops into the scratchpad and works:
+  `curl -sL https://downloads.php.net/~windows/releases/php-8.3.35-nts-Win32-vs16-x64.zip`,
+  unzip, then run with `-d extension_dir=<dir>/php/ext -d extension=mbstring` —
+  mbstring is NOT loaded by default and the parser needs it. `php -l` over every file
+  is then a real syntax check, which this project never had.
+  - To execute the parser, stub `ABSPATH`, `AIOC_PATH`, `__()`, `get_option()`,
+    `ai_log()` and a `WC()` whose `countries->get_states('BD')` returns the real 64-row
+    list, then require `includes/parsing/*.php` and call
+    `ai_build_deterministic_parse()`. The BD list can be lifted from WooCommerce's
+    `i18n/states.php` — note that file begins `defined('ABSPATH') || exit;`, so
+    requiring it without `ABSPATH` defined exits silently with status 0.
+  - The Groq path still cannot be exercised locally: it needs network and a key. Only
+    the deterministic pipeline is reachable, which is where the parsing logic lives.
 - App tests: `npm test` in `app/`. No dependencies, no browser — it runs the real
   `src/api.js` against a throwaway localhost server. Currently one file,
   `app/test/api-abort.test.mjs`, pinning the abort-versus-real-failure contract the
@@ -263,6 +278,27 @@ parser becomes one feature inside it, not the whole tool.
 - `POST /parse` returns data and creates nothing. Always parse → review → save; never
   blind-create. Implemented in 5.8; it also returns a `shipping_preview` from the pure
   rate table so staff see the cost before saving.
+- **Leading list markers are stripped as line PREFIXES only, in two classes.** A marker
+  sits between the start of a line and its field label, which silently defeats the
+  `(?:^|\n)\s*label` anchors the extractors rely on — so a bulleted message loses its
+  fields entirely rather than looking slightly untidy. Characters that can only ever be
+  bullets are stripped with or without a following space; **hyphen, asterisk, en dash
+  and em dash are stripped only when a space follows them**, because the space is what
+  makes one a list marker rather than part of a value. A line opening with a
+  hyphen-attached number (`-১০৭৯`) must keep its sign, and a hyphen inside a line
+  (`Mirpur-10`) must never be touched — v4.1 records the regression that comes of
+  getting this wrong.
+- **`ai_get_field_start_labels()` decides where a labeled value STOPS.** A label missing
+  from that list means the next field gets absorbed into the previous one's value as a
+  continuation line. `Phone Number:` did exactly that to the address, because `phone`
+  alone cannot match it — the pattern wants a separator immediately after the label.
+  Keep it in step with `ai_get_meta_label_words()`.
+- **An area-to-district alias must be checked for substring collisions before it is
+  added.** `ai_extract_state_from_text()` takes the first alias that appears anywhere in
+  the text, with no word boundary, iterating in insertion order. `tongi` is a substring
+  of `tongibari` (Munshiganj) and `tungi` of `tungipara` (Gopalganj), so those longer
+  names are listed BEFORE the Tongi block in `bd-locations.php`. File order is load
+  bearing there.
 - Any endpoint taking pasted order text must sanitize with `sanitize_textarea_field()`,
   never `sanitize_text_field()` — the latter strips newlines, and the address parser
   splits on them. Use the `ai_rest_sanitize_textarea()` wrapper.
@@ -539,6 +575,24 @@ failure throws an `ApiError` whose message is shown and a transport failure thro
 with `isNetwork` set. Aborting mid-body-read behaves the same way, which matters because
 that path does not pass through `api.js`'s `try`/`catch` around `fetch()`.
 
+Parser fixes (6.5) — verified LOCALLY against a real PHP 8.3.35 with WooCommerce's
+64-row BD state list stubbed in, not on staging. Every PHP file in the plugin also
+parses clean under `php -l`, which had never been checked before.
+
+- The reported bulleted input now yields name `Atika Parven`, phone `01778828637`,
+  address `Shopnonagor residential area 2, Building no 13 (mollika), Dhaka 1216`, state
+  `Dhaka` / `BD-13` — no markers anywhere, and the name no longer in the address. Same
+  result with `-`, `*`, `·`, `◦`, `▪`, `–` and `—` as the marker.
+- `Mirpur-10` survives inside an address, with and without a leading bullet, and a line
+  beginning `-1079` / `-১০৭৯` keeps its sign.
+- Tongi resolves to Gazipur / `BD-18` in every requested spelling, bare and with the
+  district, and a full Tongi address parses end to end.
+- `Tongibari` still resolves to Munshiganj and `Tungipara` to Gopalganj, which is what
+  the substring guards are for.
+- Mohakhali now resolves to Dhaka rather than Noakhali.
+- Regression spot-checks hold: district names, Bangla input, Dhaka areas, the numbered
+  list form, `Bogra` → Bogura and `Cox's Bazar`.
+
 ## Unverified / open
 
 - **Untestable in this catalogue** (no variable products), relevant only if any are
@@ -547,6 +601,34 @@ that path does not pass through `api.js`'s `try`/`catch` around `fetch()`.
   missed; and variation-level SKUs are findable only by exact match via
   `wc_get_product_id_by_sku()`, the parent-first search never reaching a partial one.
   Parent/simple SKU partial matching IS verified.
+- **6.5 has not run on staging.** The parser fixes are verified locally against a real
+  PHP, which is far better evidence than this project has had before, but the Groq
+  fallback is unreachable locally and only staging exercises `POST /parse` end to end.
+  Re-run the bulleted input and a Tongi address there.
+- **The fuzzy Levenshtein fallback in `ai_extract_state_from_text()` misroutes real
+  place names, and that is the actual cause of the reported Jashore mismatch.** It scans
+  every word of 5+ characters against every ASCII alias, allowing one edit at 5-6
+  characters and two at 7+, and returns on the first word that matches anything.
+  Confirmed live misroutes: **`kishore` → Jashore** (so Kishoreganj written as
+  "Kishore"), **`sreepur` → Sherpur**, **`kaliganj` → Habiganj**, **`shibpur` →
+  Sherpur**. `mohakhali` → Noakhali was the same shape and is now fixed by an exact
+  alias; the rest are not. An exact alias always beats the fuzzy pass, so adding one is
+  the cheap fix per name — but the general problem is the two-edit budget on seven-letter
+  aliases, which is simply too loose for Bangladeshi place names that differ by two
+  letters. Worth capping at one edit and measuring what breaks.
+- **`Sreepur` and `Kaliganj` are ambiguous and deliberately unmapped.** Sreepur names an
+  upazila in Gazipur and in Magura; Kaliganj in Gazipur, Satkhira, Jhenaidah and
+  Lalmonirhat. Mapping either to Gazipur would assert a district the text never states.
+  Both currently resolve WRONGLY via the fuzzy pass, so "unmapped" is not neutral here —
+  it leaves a confidently wrong answer. Decide between adding them to Gazipur anyway
+  (most likely for a Dhaka-based store) and tightening the fuzzy matcher so they fall
+  through to unresolved.
+- **WooCommerce's own BD state labels leak trailing whitespace into the alias map.**
+  `ai_get_state_aliases()` keys on `strtolower($name)`, so `"Faridpur "` and
+  `"Manikganj "` become aliases with a trailing space that no substring search can
+  match. Harmless today because the manual file carries clean duplicates, but it is the
+  same trailing-whitespace finding already recorded under Product decisions, showing up
+  in a second place.
 - **WooCommerce caps a negative fee at the order's own value** inside
   `calculate_totals()`, rewriting the fee item's total so the order cannot go below
   zero. A discount larger than the order therefore comes back smaller than it was sent.
@@ -622,7 +704,6 @@ that path does not pass through `api.js`'s `try`/`catch` around `fetch()`.
 - Rotate the live site's DB password and all eight wp-config salts — they were exposed.
 - README.md and the CHANGELOG.md intro line still say "AI Order Creator" rather than
   "Order Ops".
-- CHANGELOG.md is missing the 4.8 entry; the plugin header has it.
 - Step 4b verification created test orders on staging; they were trashed afterwards, not
   permanently deleted, so they still sit in staging's trash.
 
