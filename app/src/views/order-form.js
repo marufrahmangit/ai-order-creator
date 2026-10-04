@@ -216,48 +216,38 @@ export function OrderFormView({ orderId, onClose, signal }) {
   const itemsList = el('div', { class: 'items-list' })
 
   /**
-   * One line item row.
+   * One line item row: price per unit, quantity, line total.
    *
-   * `unitPrice` is derived from the line SUBTOTAL divided by quantity, because
-   * the API reports per-line figures, not a unit price.
+   * This mirrors WooCommerce's order edit screen, which gives a line exactly
+   * these two editable money fields. Changing the price or the quantity
+   * recalculates the total; changing the total sets it directly and leaves the
+   * price showing whatever it was. There is no override concept, because
+   * WooCommerce has no such concept - with both fields present there is no
+   * ambiguity for one to resolve.
    *
-   * `total` is the line's own figure and is EDITABLE, the way wp-admin's order
-   * editor allows. `overridden` records that the figure is deliberate rather
-   * than derived - either because the user typed it, or because the stored
-   * total arrived differing from price x quantity (a coupon, a discount, an
-   * earlier manual edit).
-   *
-   * An overridden line is never recomputed. A stepper tap must not silently
-   * throw away a figure someone chose on purpose; a non-overridden line
-   * recomputes from price x quantity as you would expect.
-   *
-   * Every line sends its `total` on save, so none of this is lost in the
-   * round trip - see lineItemsPayload().
+   * `price` is a CLIENT-SIDE CONVENIENCE ONLY. The API has no per-line price
+   * field: it takes product_id, quantity and total, so the price exists here
+   * purely to compute the total, and the server only ever receives the total.
+   * See lineItemsPayload().
    */
-  function makeItem({ product_id, name, unitPrice, quantity, storedTotal }) {
-    const safeQuantity = Math.max(1, quantity || 1)
-    const computed = unitPrice === null ? null : unitPrice * safeQuantity
-
-    // A stored figure that does not match price x quantity is an override by
-    // definition: something other than this form put it there.
-    const overridden = storedTotal !== null
-      && (computed === null || Math.abs(storedTotal - computed) >= 0.005)
-
-    const total = storedTotal !== null ? storedTotal : computed
-
+  function makeItem({ product_id, name, price, quantity, total }) {
     return {
       product_id,
       name,
-      unitPrice,
-      quantity: safeQuantity,
+      price,
+      quantity: Math.max(1, quantity || 1),
       total,
-      overridden,
     }
   }
 
-  /** The figure to show and send for a row, or null when the price is unknown. */
+  /** The figure to show and send for a row, or null when it is not known yet. */
   function lineTotal(item) {
     return item.total
+  }
+
+  /** price x quantity, or null when there is no price to multiply. */
+  function computedTotal(item) {
+    return item.price === null ? null : item.price * item.quantity
   }
 
   function setQuantity(item, quantity) {
@@ -266,10 +256,9 @@ export function OrderFormView({ orderId, onClose, signal }) {
 
     item.quantity = next
 
-    // Only a derived total follows the quantity. An override is the user's
-    // figure and stays put.
-    if (!item.overridden && item.unitPrice !== null) {
-      item.total = item.unitPrice * next
+    // Quantity always recalculates the total, as WooCommerce does.
+    if (item.price !== null) {
+      item.total = computedTotal(item)
     }
 
     state.itemsDirty = true
@@ -279,15 +268,60 @@ export function OrderFormView({ orderId, onClose, signal }) {
   }
 
   /**
-   * Called while the user types in a line total.
+   * Typing in the PRICE field. Recalculates the total.
    *
    * The text is left exactly as typed - no reformatting mid-entry, which would
-   * fight the caret and make "1" impossible to turn into "10". Only the parsed
-   * value and the order total are updated here; the input is normalized on
-   * blur.
+   * fight the caret and make "1" impossible to turn into "10". Normalization
+   * happens on blur.
+   *
+   * @returns {boolean} Whether the total changed and its input needs rewriting.
+   */
+  function onPriceInput(item, rawText) {
+    state.itemsDirty = true
+
+    const parsed = parseTypedAmount(rawText)
+    if (parsed === null) {
+      return false
+    }
+
+    item.price = parsed
+    item.total = computedTotal(item)
+    renderTotals()
+
+    return true
+  }
+
+  /**
+   * The price field losing focus: settle on a figure and show it canonically.
+   *
+   * @returns {string} The text the price input should now display.
+   */
+  function onPriceBlur(item, rawText) {
+    const text = rawText.trim()
+
+    if (text === '') {
+      item.price = null
+    } else {
+      const parsed = parseTypedAmount(text)
+      // Unparseable input keeps whatever the line already held rather than
+      // becoming 0 - a typo must not quietly zero a line.
+      if (parsed !== null) {
+        item.price = parsed
+        item.total = computedTotal(item)
+      }
+    }
+
+    renderTotals()
+
+    return item.price === null ? '' : formatAmount(item.price)
+  }
+
+  /**
+   * Typing in the TOTAL field. Sets the line total directly and leaves the
+   * price alone, exactly as WooCommerce does - the price field keeps showing
+   * what it showed before.
    */
   function onTotalInput(item, rawText) {
-    item.overridden = true
     state.itemsDirty = true
 
     const parsed = parseTypedAmount(rawText)
@@ -298,24 +332,17 @@ export function OrderFormView({ orderId, onClose, signal }) {
   }
 
   /**
-   * Called when a line total loses focus: settle on a figure and show it
-   * canonically.
+   * The total field losing focus.
    *
-   * Emptying the field is how a line goes back to being derived, which is the
-   * only way out of an override short of retyping the computed figure.
-   *
-   * @returns {string} The text the input should now display.
+   * @returns {string} The text the total input should now display.
    */
   function onTotalBlur(item, rawText) {
     const text = rawText.trim()
 
     if (text === '') {
-      item.overridden = false
-      item.total = item.unitPrice === null ? null : item.unitPrice * item.quantity
+      item.total = null
     } else {
       const parsed = parseTypedAmount(text)
-      // Unparseable input falls back to whatever the line already held rather
-      // than becoming 0 - a typo must not quietly zero a line.
       if (parsed !== null) item.total = parsed
     }
 
@@ -368,33 +395,43 @@ export function OrderFormView({ orderId, onClose, signal }) {
         onClick: () => setQuantity(item, item.quantity + 1),
       })
 
-      const overrideHint = el('p', {
-        class: 'field-hint',
-        hidden: !item.overridden,
-        text: 'Edited total — quantity changes will not recalculate it. Clear the field to go back to price × quantity.',
-      })
-
-      // Editable, as wp-admin's order editor allows. type=text with a numeric
-      // inputmode rather than type=number: a number input rejects a partially
-      // typed value in some browsers and brings spinners nobody wants on a
-      // phone, while inputmode still gets the numeric keypad.
+      // Both money fields are type=text with a numeric inputmode rather than
+      // type=number: a number input rejects a partially typed value in some
+      // browsers and brings spinners nobody wants on a phone, while inputmode
+      // still gets the numeric keypad.
       const totalInput = el('input', {
         type: 'text',
         inputmode: 'decimal',
-        class: 'item-total-input',
+        class: 'item-money-input item-total-input',
         value: total === null ? '' : formatAmount(total),
         placeholder: total === null ? 'Set on save' : '',
         'aria-label': `Line total for ${item.name}`,
-        onInput: (event) => {
-          onTotalInput(item, event.target.value)
-          overrideHint.hidden = false
-        },
+        onInput: (event) => onTotalInput(item, event.target.value),
         onBlur: (event) => {
           // Writing straight to the input rather than re-rendering the row:
           // renderItems() would rebuild this node and, on a phone, drop the
           // keyboard the user may still be moving through the form with.
           event.target.value = onTotalBlur(item, event.target.value)
-          overrideHint.hidden = !item.overridden
+        },
+      })
+
+      const priceInput = el('input', {
+        type: 'text',
+        inputmode: 'decimal',
+        class: 'item-money-input item-price-input',
+        value: item.price === null ? '' : formatAmount(item.price),
+        placeholder: item.price === null ? 'Set on save' : '',
+        'aria-label': `Unit price for ${item.name}`,
+        onInput: (event) => {
+          // Editing the price rewrites the total field, which the user is not
+          // typing in - so updating it live is help rather than interference.
+          if (onPriceInput(item, event.target.value)) {
+            totalInput.value = item.total === null ? '' : formatAmount(item.total)
+          }
+        },
+        onBlur: (event) => {
+          event.target.value = onPriceBlur(item, event.target.value)
+          totalInput.value = item.total === null ? '' : formatAmount(item.total)
         },
       })
 
@@ -409,14 +446,19 @@ export function OrderFormView({ orderId, onClose, signal }) {
             onClick: () => removeItem(item),
           }),
         ]),
-        el('p', { class: 'item-unit', text: item.unitPrice === null
-          ? 'Price resolves when you save'
-          : `${formatMoney(item.unitPrice)} each` }),
+        el('div', { class: 'item-money-row' }, [
+          el('label', { class: 'item-money-label' }, [
+            el('span', { text: 'Price' }),
+            priceInput,
+          ]),
+          el('label', { class: 'item-money-label' }, [
+            el('span', { text: 'Total' }),
+            totalInput,
+          ]),
+        ]),
         el('div', { class: 'item-foot' }, [
           el('div', { class: 'qty-stepper' }, [minus, quantityValue, plus]),
-          el('div', { class: 'item-total-field' }, [totalInput]),
         ]),
-        overrideHint,
       ]))
     }
   }
@@ -467,9 +509,9 @@ export function OrderFormView({ orderId, onClose, signal }) {
       state.items.push(makeItem({
         product_id: productId,
         name: `Product ${productId}`,
-        unitPrice: null,
+        price: null,
         quantity: 1,
-        storedTotal: null,
+        total: null,
       }))
       state.itemsDirty = true
       renderItems()
@@ -674,8 +716,8 @@ export function OrderFormView({ orderId, onClose, signal }) {
     ))
 
     // While nothing has been edited locally, the server's total is the truth and
-    // can legitimately differ from items + shipping - a coupon, a discount, a
-    // per-line override. Once there are local edits it cannot be, so the
+    // can legitimately differ from items + shipping - a coupon or a discount
+    // applied outside this app. Once there are local edits it cannot be, so the
     // computed figure takes over and the note below says it is provisional.
     const shippingCost = state.shipping.cost ?? 0
     const clean = state.dirty.size === 0 && !state.itemsDirty && !state.feesDirty
@@ -775,9 +817,14 @@ export function OrderFormView({ orderId, onClose, signal }) {
    *
    * `total` is sent for EVERY priced line, edited or not. line_items is
    * replace-all, so a line sent without a total is re-priced from the
-   * catalogue - which means omitting it would discard a stored override the
+   * catalogue - which means omitting it would discard the figure on screen the
    * moment anything else about the items changed. That was a real data-loss
    * path; sending the displayed figure closes it.
+   *
+   * THE API HAS NO PER-LINE PRICE FIELD. It accepts product_id, quantity and
+   * total, so the Price input is a client-side convenience for computing the
+   * total and the server only ever receives the total. A price typed without a
+   * matching total would simply not survive the round trip.
    *
    * The one line that cannot carry a total is a stopgap row added by id, whose
    * price is not known client-side. There the key is omitted on purpose, so
@@ -983,14 +1030,17 @@ export function OrderFormView({ orderId, onClose, signal }) {
 
     state.items = (Array.isArray(order.line_items) ? order.line_items : []).map((line) => {
       const quantity = Math.max(1, Number(line.quantity) || 1)
-      const subtotal = toNumber(line.subtotal)
+      const total = toNumber(line.total)
       return makeItem({
         product_id: Number(line.product_id) || 0,
         name: line.name || `Product ${line.product_id}`,
-        // Per-line figures only, so the unit price is derived.
-        unitPrice: subtotal === null ? null : subtotal / quantity,
         quantity,
-        storedTotal: toNumber(line.total),
+        total,
+        // Derived from the total so the two fields agree on load. The API
+        // reports per-line figures only, never a unit price, and deriving from
+        // `total` rather than `subtotal` is what makes price x quantity equal
+        // the total exactly as displayed.
+        price: total === null ? null : total / quantity,
       })
     })
 

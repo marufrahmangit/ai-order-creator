@@ -2,16 +2,39 @@
 
 Working brief for resuming this project cold. Present state only — git log is the history.
 
-Plugin header: **Order Ops v6.6**, Updated 2026-10-02. Live runs v4.9. Staging runs
-**6.4**, against which the whole API layer is verified — steps 1-5 done, order fees
-included, CORS working in both directions, and the PWA shell confirmed in a browser.
-**6.5 and 6.6 are committed but NOT uploaded**: the 6.5 parser fixes (bulleted
-messages, Tongi → Gazipur) and 6.6's `status=trash` support, both verified locally but
-not on staging. The app's trash view (step 6c) is built and likewise unverified.
+Plugin header: **Order Ops v6.6**, Updated 2026-10-02. Live runs **v4.9**. Staging runs
+**6.6**, and **the whole API layer is verified against it** — steps 1-5 done, order fees,
+custom order statuses on both the read and write paths, `status=trash`, CORS in both
+directions, and the PWA shell confirmed in a browser. **No plugin work is outstanding.**
 
-**Step 6a (the order form and its line-items list) is BUILT but has never run against
-staging in a browser.** Step 6b, the product picker, is next. The app is still served
-from `npm run dev`; nothing has been deployed to a subdomain yet.
+## Start here
+
+**Next task: step 6b, the product picker.** It replaces the temporary
+add-by-product-id input in the order form (`app/src/views/order-form.js`, marked
+`STOPGAP - STEP 6a ONLY`). `GET /products` is finished and verified for it:
+price-ascending ordering, compound terms like `three 2500`, `fields=picker` for a
+five-key row, and `timing_ms`. The picker must enforce the 3-character minimum
+client-side, debounce at ~250-300ms and cancel in-flight requests per keystroke —
+`views/orders.js` already does all three and is the pattern to copy.
+
+**After that: step 7** — manifest, service worker, install prompt.
+
+**Unverified in a browser, and worth doing before building more:** the order form
+(step 6a, including the revised Price/Total line editing) and the trash view (6c) have
+never been run against staging. Everything else in the app has.
+
+**Still outstanding operationally, none of it code:**
+
+- `ops.cartmixbd.com` is **not stood up**. The app is served from `npm run dev`.
+- `ai_app_origin` on staging is `http://localhost:5173` and **must change at deploy**.
+  It holds one origin, so flipping it breaks local development until flipped back.
+- **Live still runs plugin 4.9** and has no `aioc/v1` routes at all.
+- **Defender truncates application passwords** in wp-admin. `POST /token` is believed
+  to sidestep it, since it reads the plaintext from the create call rather than the
+  admin screen, but that is reasoned and not tested — confirm with Defender ACTIVE
+  before the app reaches live.
+- `app/dist/` must be rebuilt before any deploy; `VITE_API_BASE` is baked in at build
+  time.
 
 **`/products` is done being optimised.** Server-side search now costs 40-90ms against
 several hundred ms of round-trip latency, so network dominates and further server-side
@@ -154,6 +177,17 @@ parser becomes one feature inside it, not the whole tool.
 
 ## Product decisions
 
+- **Where WooCommerce already has a behaviour, copy it rather than designing a new
+  one.** This is the governing rule for anything the app does to an order, and it is
+  here because ignoring it cost real work. The line-item editor originally offered a
+  single editable Total and invented "override" semantics around it — an edited total
+  stuck, quantity changes skipped recalculation, clearing the field reverted it. None of
+  that exists in WooCommerce. The rule was invented to resolve an ambiguity that only
+  existed because two of WooCommerce's fields, Price and Total, had been collapsed into
+  one. Restoring the second field removed the ambiguity and the rule with it. **The
+  lesson: when a design question about order editing feels genuinely hard, check whether
+  WooCommerce's own screen already answers it — the hard question is usually a sign that
+  something has been collapsed or renamed.**
 - Shipping is a pure function of billing state: BD-13 → 80 Dhaka Flat Rate,
   BD-18 → 120 Gazipur Flat Rate, all else → 150 Outside Dhaka Flat Rate. One rate
   table in `includes/orders/shipping.php`, called from the admin hooks and every REST
@@ -262,23 +296,26 @@ parser becomes one feature inside it, not the whole tool.
   it would display a confidently wrong name and price. The server resolves the id on
   save, the re-render fills in the real values, and a non-existent id comes back as a
   warning with the line skipped.
-- **The line total is editable, and every line sends its `total` on save.** WooCommerce's
-  own order editor allows it and the API has always supported a per-line `total`, so the
-  form exposes it as a numeric input rather than read-only text. A line is *overridden*
-  when the user types a figure, or when the stored total arrives differing from price ×
-  quantity (a coupon, a discount, an earlier manual edit). **An overridden line is never
-  recomputed** — a stepper tap must not silently discard a figure someone chose on
-  purpose — while a derived line follows the quantity as expected. Clearing the field
-  returns the line to price × quantity, which is the way out of an override.
+- **Line item editing mirrors WooCommerce — Price and Total are both editable, and
+  there is no override concept.** Exactly as WooCommerce's order edit screen behaves:
+  changing the quantity recalculates Total as price × quantity; changing Price
+  recalculates Total the same way; changing Total sets that line's total directly and
+  leaves Price showing what it was. Nothing is sticky, nothing is reverted by clearing a
+  field, and no flag tracks which figure is "deliberate".
+  - **The API has no per-line price field.** It accepts `product_id`, `quantity` and
+    `total`, so Price is a client-side convenience for computing Total and the server
+    only ever receives the total. On load, Price is derived as `total / quantity` so the
+    two fields agree.
   - Sending `total` for **every** line is what closes a real data-loss path: `line_items`
     is replace-all, so a line sent without a total is re-priced from the catalogue, and
-    omitting it meant that touching the items at all discarded any stored override. The
-    only line that cannot carry one is a stopgap row added by id whose price is unknown
+    omitting it meant touching the items at all discarded the figure on screen. The only
+    line that cannot carry one is a stopgap row added by id whose price is unknown
     client-side; there the key is omitted so the server prices it. Sending `0` would be
     far worse than omitting — it would zero the line.
   - Typed figures are normalized on blur, never mid-entry, and tolerate spaces and
     thousands separators, because "1,500" is how the amount actually gets typed and
-    `Number()` makes `NaN` of it.
+    `Number()` makes `NaN` of it. Unparseable input keeps the previous value rather than
+    becoming 0. These are input-handling conveniences, not behaviours WooCommerce lacks.
 - **The order form edits fees, including negative ones.** A fee row is a name input and
   an amount input; the name may be empty and the amount may be negative, with nothing
   blocking a minus sign or taking an absolute value. The provisional total is items plus
@@ -418,6 +455,9 @@ parser becomes one feature inside it, not the whole tool.
 | 6a | Order form — fields, paste-and-parse, line items, totals, save, trash | built, **unverified in a browser** | — |
 | 6b | Product picker — replaces the temporary add-by-id control | **next** | — |
 | 6c | Trash view and restore | built, **unverified in a browser** | 6.6 |
+
+**Step 6b is next.** 6a and 6c are built but unverified in a browser; nothing in the API
+is waiting on anything.
 | 7 | Manifest, service worker, install prompt | not started | — |
 
 **The API layer is complete and signed off.** Step 3 at 5.6/5.7 with 3d/3e verified at
@@ -610,6 +650,17 @@ failure throws an `ApiError` whose message is shown and a transport failure thro
 with `isNetwork` set. Aborting mid-body-read behaves the same way, which matters because
 that path does not pass through `api.js`'s `try`/`catch` around `fetch()`.
 
+`status=trash` and custom statuses on the write path, confirmed on staging at **6.6**:
+
+- **`GET /orders?status=trash` returns trashed orders**, with `status_label` `"Trash"`.
+  That label comes from `ai_rest_order_status_label()`'s post-status fallback, because
+  `wc_get_order_status_name()` returns the bare slug `trash` — its special-statuses map
+  points `wc-trash` at the slug rather than at a label. HPOS stores the status
+  **unprefixed** as `trash`, which is why the query normalizes `wc-trash` down to it.
+- **`POST /orders` with `status: "returned"` returns 200 with `status_label`
+  `"Returned"`**, so custom statuses work on the WRITE path as well as in `/meta`. The
+  app can set them. That closes the last open question about them.
+
 **Custom order statuses propagate end to end, with no app rebuild.** Confirmed on
 staging: `GET /meta` returns all **twelve** statuses, the eight WooCommerce ones plus
 `not-picked-yet`, `inv-pending`, `inv-processing` and `returned`, each with its label.
@@ -661,12 +712,17 @@ parses clean under `php -l`, which had never been checked before.
   missed; and variation-level SKUs are findable only by exact match via
   `wc_get_product_id_by_sku()`, the parent-first search never reaching a partial one.
   Parent/simple SKU partial matching IS verified.
-- **6.6 and the trash view have not run anywhere.** Unverified: that
-  `GET /orders?status=trash` actually returns trashed orders under HPOS (the reasoning is
-  from the WooCommerce source, not a request), that `status_label` comes back as `Trash`,
-  that the default list still excludes trash, that Restore removes the row, and that the
-  empty state shows. Staging's trash still holds the step 4b test orders, so there is
-  data to look at.
+- **The 6.5 parser fixes are deployed but not re-exercised through `/parse`.** Staging
+  runs 6.6, so the code is there, and the fixes are verified locally against a real PHP -
+  stronger evidence than this project usually has. What has not happened is a
+  `POST /parse` on staging with a bulleted message or a Tongi address, which is the only
+  thing that also covers the REST wrapper and the Groq fallback. One request each.
+- **The trash VIEW and the revised order form have not run in a browser.** The endpoint
+  side of both is verified on staging; what is unexercised is the app. Specifically:
+  Restore removing a row and decrementing the count, the empty state, that a trashed row
+  cannot be opened, and — in the order form — the new Price/Total pair, the quantity
+  stepper recalculating Total, editing Total leaving Price alone, fees, and partial
+  update leaving untouched fields alone.
 - **The orders list may include `checkout-draft` carts.** Our default status arg is
   `array_keys(wc_get_order_statuses())`, which INCLUDES `wc-checkout-draft`, whereas
   WooCommerce's own empty/'any' handling excludes anything flagged
@@ -674,10 +730,6 @@ parses clean under `php -l`, which had never been checked before.
   the storefront is unused and there are no abandoned carts, so nothing to fix today, but
   the default is wider than WooCommerce's. The app filters the status out of its dropdown;
   the list query does not.
-- **6.5 has not run on staging.** The parser fixes are verified locally against a real
-  PHP, which is far better evidence than this project has had before, but the Groq
-  fallback is unreachable locally and only staging exercises `POST /parse` end to end.
-  Re-run the bulleted input and a Tongi address there.
 - **The fuzzy Levenshtein fallback in `ai_extract_state_from_text()` misroutes real
   place names, and that is the actual cause of the reported Jashore mismatch.** It scans
   every word of 5+ characters against every ASCII alias, allowing one edit at 5-6

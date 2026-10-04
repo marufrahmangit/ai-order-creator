@@ -524,27 +524,36 @@ button {
   overflow-wrap: anywhere;
 }
 
-.item-unit {
-  margin: 2px 0 10px;
-  font-size: 13px;
-  color: var(--ink-muted);
-}
-
+/* Only the quantity stepper lives here now; Price and Total sit above it. */
 .item-foot {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
 }
 
-/* The line total is an editable field, as wp-admin's order editor allows.
-   Right-aligned and tabular so a column of them reads as figures. */
-.item-total-field {
-  flex: 0 0 auto;
+/* Price and Total, both editable, mirroring WooCommerce's order edit screen.
+   Side by side and equal width so neither reads as the primary one, and
+   right-aligned and tabular so a column of them reads as figures. */
+.item-money-row {
+  display: flex;
+  gap: 10px;
+  margin: 8px 0 10px;
 }
 
-.item-total-input {
-  width: 110px;
+.item-money-label {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+}
+
+.item-money-input {
+  width: 100%;
   min-height: var(--tap);
   padding: 0 10px;
   border: 1px solid var(--line);
@@ -556,7 +565,7 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
-.item-total-input:focus-visible {
+.item-money-input:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
