@@ -2,16 +2,13 @@
 
 Working brief for resuming this project cold. Present state only — git log is the history.
 
-Plugin header: **Order Ops v6.5**, Updated 2026-10-02. Live runs v4.9. Staging runs
+Plugin header: **Order Ops v6.6**, Updated 2026-10-02. Live runs v4.9. Staging runs
 **6.4**, against which the whole API layer is verified — steps 1-5 done, order fees
 included, CORS working in both directions, and the PWA shell confirmed in a browser.
 **6.5 and 6.6 are committed but NOT uploaded**: the 6.5 parser fixes (bulleted
 messages, Tongi → Gazipur) and 6.6's `status=trash` support, both verified locally but
 not on staging. The app's trash view (step 6c) is built and likewise unverified.
 
-**Custom order statuses are unusable through the API right now** — see the open item.
-They reach wp-admin but not REST, so `POST /orders` rejects `returned` with
-`aioc_invalid_status`. The cause is outside this repo.
 **Step 6a (the order form and its line-items list) is BUILT but has never run against
 staging in a browser.** Step 6b, the product picker, is next. The app is still served
 from `npm run dev`; nothing has been deployed to a subdomain yet.
@@ -52,6 +49,14 @@ parser becomes one feature inside it, not the whole tool.
   not tested. Confirm `/token` works with Defender ACTIVE before live, since it also
   hooks `authenticate` and the `wp_login_failed` action that `wp_authenticate()`
   fires.
+- Custom order statuses live in a **Code Snippets** snippet that hooks
+  `wc_order_statuses`, not in this plugin. **If custom statuses stop appearing in
+  `/meta` after a snippet edit, re-save the snippet or clear Code Snippets' cache before
+  suspecting this repo** — that is what fixed it once already. Its active-snippets cache
+  is keyed per scope group, so a stale entry can leave the snippet running in wp-admin
+  while a REST request sees the unfiltered list. Our side holds no status cache at all:
+  `meta.php`, `orders.php` and `orders-write.php` each call `wc_get_order_statuses()`
+  live, per request.
 - **`ai_app_origin` on staging is currently `http://localhost:5173`** — the Vite dev
   server — so CORS grants reach a local dev machine and nothing else. It must become
   `https://ops.cartmixbd.com` when the built app is deployed. **The setting holds one
@@ -228,6 +233,8 @@ parser becomes one feature inside it, not the whole tool.
 - **The app populates the district and status dropdowns from `GET /meta`, and hardcodes
   neither list.** Both are read from WooCommerce per request, so a state relabelled
   upstream or a status registered by another plugin propagates without an app rebuild.
+  **Confirmed on staging with four custom statuses** — see Verified. This is the whole
+  reason `/meta` exists, and it now has evidence rather than intent behind it.
   Money formatting likewise uses the endpoint's `currency` and `price_decimals` rather
   than assuming BDT and 2dp. Cache the response for the session, not per screen.
 - **There is no relevance SCORING for text searches, deliberately.** A text term's
@@ -603,6 +610,31 @@ failure throws an `ApiError` whose message is shown and a transport failure thro
 with `isNetwork` set. Aborting mid-body-read behaves the same way, which matters because
 that path does not pass through `api.js`'s `try`/`catch` around `fetch()`.
 
+**Custom order statuses propagate end to end, with no app rebuild.** Confirmed on
+staging: `GET /meta` returns all **twelve** statuses, the eight WooCommerce ones plus
+`not-picked-yet`, `inv-pending`, `inv-processing` and `returned`, each with its label.
+They are registered by a Code Snippets snippet through the `wc_order_statuses` filter and
+nothing in this plugin knows they exist. That is `/meta`'s design intent demonstrated:
+read the lists from WooCommerce per request, hardcode nothing, and a status another
+plugin registers simply appears.
+
+- `POST /orders` validates against the same `wc_get_order_statuses()`, so setting an
+  order to `returned` through the API should now be accepted by the same mechanism. Not
+  separately exercised — worth one request to confirm.
+- **A debugging fact worth keeping: core `wc_get_order_statuses()` returns SEVEN
+  statuses.** The eighth default, `checkout-draft`, arrives via the `wc_order_statuses`
+  filter from WooCommerce Blocks' `DraftOrders`. So seeing eight in `/meta` already
+  proves filter callbacks are being applied during a REST request — which is what ruled
+  out Code Snippets' REST handling, load ordering and our own caching when the custom
+  statuses were missing. If a filtered list ever looks wrong over REST, count the
+  statuses first: seven means no filters ran at all, eight or more means they did and the
+  problem is the specific callback.
+- The earlier failure, where the four custom statuses reached wp-admin but not `/meta`,
+  was most likely a stale Code Snippets active-snippets cache: re-saving the snippet
+  fixed it, and an `error_log()` in the snippet confirmed it executes on REST requests
+  (`admin=0`). Not conclusively proven, so it is recorded under Environment as a
+  troubleshooting step rather than as a known mechanism.
+
 Parser fixes (6.5) — verified LOCALLY against a real PHP 8.3.35 with WooCommerce's
 64-row BD state list stubbed in, not on staging. Every PHP file in the plugin also
 parses clean under `php -l`, which had never been checked before.
@@ -629,40 +661,6 @@ parses clean under `php -l`, which had never been checked before.
   missed; and variation-level SKUs are findable only by exact match via
   `wc_get_product_id_by_sku()`, the parent-first search never reaching a partial one.
   Parent/simple SKU partial matching IS verified.
-- **Custom order statuses never reach REST, so the app cannot use them.** Confirmed on
-  staging: "Not Picked Yet", "Pending Investigation", "Investigation Processing" and
-  "Returned" appear in wp-admin's single-order dropdown and in the orders-list bulk
-  actions, but `GET /meta` returns only the eight WooCommerce defaults. This is worse
-  than a cosmetic gap: `POST /orders` validates against `wc_get_order_statuses()`, so
-  setting an order to `returned` through the API fails with `aioc_invalid_status`.
-  - **It is not our code.** All three of our call sites invoke `wc_get_order_statuses()`
-    live, per request — `meta.php`, `orders.php` and `orders-write.php` — and nothing in
-    the REST layer caches a status list (the only transients are the `/token` throttle
-    buckets). Route callbacks run on `rest_api_init`, which fires from `parse_request`,
-    long after both `plugins_loaded` and `init`, so a filter registered at either point
-    is in place well before any handler runs. Load order is not the problem.
-  - **The filter pipeline itself demonstrably works during REST.** Core
-    `wc_get_order_statuses()` returns SEVEN statuses; the eighth, `checkout-draft`, is
-    added by WooCommerce Blocks' `DraftOrders` through the `wc_order_statuses` filter.
-    `/meta` returns eight, which proves filter callbacks are applied on a REST request.
-    What is missing is specifically the snippet's callback.
-  - **Code Snippets 3.9.6 should be executing it.** Read from the 3.9.6 source:
-    `Evaluate_Functions::__construct()` hooks `plugins_loaded` at priority 1, which fires
-    on every request including REST, and `evaluate_db_snippets()` builds its scope list as
-    `['global', 'single-use', is_admin() ? 'admin' : 'front-end']` — a "Run everywhere"
-    snippet is scope `global` and is therefore included regardless of `is_admin()`. There
-    is no REST bail-out in `evaluate_early()`; the only JSON-specific gate,
-    `get_currently_editing_snippet()`, skips a snippet solely while the request is to
-    Code Snippets' OWN REST route for that snippet. Cache staleness is also out:
-    `clean_active_snippets_cache()` flushes the front-end and admin scope groups both.
-  - **So the remaining explanations are all inside the snippet, and it has not been
-    read.** Most likely: the stored scope is not actually `global`; or the snippet throws
-    when executed outside wp-admin and Code Snippets records a code error and skips it;
-    or `boot()` registers the filter behind an admin-only hook. Two cheap checks settle
-    it: (1) put `error_log('OIS ran; admin=' . (int) is_admin());` at the top of the
-    snippet, request `/wp-json/aioc/v1/meta`, and read the log — that answers whether it
-    executes at all; (2) look for an error flag on the snippet in the Code Snippets list.
-    **Nothing is hardcoded or duplicated into this plugin to work around it.**
 - **6.6 and the trash view have not run anywhere.** Unverified: that
   `GET /orders?status=trash` actually returns trashed orders under HPOS (the reasoning is
   from the WooCommerce source, not a request), that `status_label` comes back as `Trash`,
