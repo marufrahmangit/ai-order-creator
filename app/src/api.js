@@ -153,9 +153,23 @@ async function request(path, options = {}) {
     if (error?.name === 'AbortError') throw error
 
     // fetch() rejects with a bare TypeError for DNS failures, offline, and -
-    // indistinguishably - a blocked CORS preflight. Given the App Origin
-    // setting holds a single origin, CORS is the likeliest cause in practice,
-    // so the message names it.
+    // indistinguishably - a blocked CORS preflight. The browser does know
+    // whether it has a network at all, so use that to tell the two apart
+    // rather than guessing: an offline staff member needs "no connection", not
+    // a sentence about an origin setting they have never heard of.
+    //
+    // Nothing is queued or retried. A save that could not reach the server has
+    // to fail visibly so the person retries deliberately - an invisible retry
+    // is how a customer ends up with two identical orders.
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      throw new ApiError(
+        'No connection. Order Ops needs the network to read or save orders.',
+        { code: 'aioc_app_network' },
+      )
+    }
+
+    // Given the App Origin setting holds a single origin, CORS is the likeliest
+    // cause of a transport failure while online, so the message names it.
     throw new ApiError(
       'Could not reach the server. Check the connection, and that the App Origin setting matches this origin.',
       { code: 'aioc_app_network' },

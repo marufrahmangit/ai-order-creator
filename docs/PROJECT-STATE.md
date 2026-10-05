@@ -9,14 +9,21 @@ directions, and the PWA shell confirmed in a browser. **No plugin work is outsta
 
 ## Start here
 
-**Next task: step 7** — manifest, service worker, install prompt. That is the last
-build step; steps 1-6 are done.
+**All seven build steps are done.** There is no feature work queued.
 
-**Before building it, run the app in a browser.** Three pieces have never been
-exercised there and they are now the whole unverified surface: the order form (6a,
-including the Price/Total line editing), the trash view (6c), and the product picker
-(6b). Everything underneath them — every endpoint they call — is verified on staging.
-`npm run dev` in `app/`, with `ai_app_origin` already set to `http://localhost:5173`.
+**What the project needs next is a browser, not more code.** Four pieces have never run
+in one, and they are the entire unverified surface: the order form (6a, including the
+Price/Total line editing), the product picker (6b), the trash view (6c), and everything
+in step 7 — install, offline shell, update prompt. Every endpoint underneath them is
+verified on staging. `npm run dev` in `app/`, with `ai_app_origin` already set to
+`http://localhost:5173`.
+
+Note that step 7 cannot be fully exercised on `npm run dev`: **the service worker is
+registered only in a production build**, deliberately, because a worker in front of the
+dev server serves yesterday's bundle while you edit today's. To test it, `npm run build`
+then `npm run preview`. Install prompts also need HTTPS or localhost.
+
+After that the remaining work is deployment, which is the operational list below.
 
 **Still outstanding operationally, none of it code:**
 
@@ -149,8 +156,10 @@ parser becomes one feature inside it, not the whole tool.
   `test/picker-logic.test.mjs` lifts the pure half of `views/product-picker.js` and
   asserts the cache-narrowing lookup and the client-side filter, which is where "typing
   feels instant" lives and where a wrong rule would show a staff member a product that
-  does not match what they typed. Both work by transforming the real source rather than
-  by duplicating logic, so they cannot drift from it silently.
+  does not match what they typed; `test/sw-routing.test.mjs` lifts `routeFor()` out of
+  `public/sw.js` and asserts that no API request is ever intercepted. All three work by
+  transforming the real source rather than duplicating logic, so they cannot drift from
+  it silently.
 - App layout (`app/src/`): `api.js` is the ONLY module that calls `fetch` — one place
   where auth, CORS, error shape and abort handling live. `auth.js` owns the stored
   credential, `meta.js` the session-cached `/meta`, `format.js` money and dates,
@@ -169,6 +178,35 @@ parser becomes one feature inside it, not the whole tool.
   warnings — and never the field inputs. Rebuilding an input while someone is typing in
   it loses their caret and, on a phone, closes the keyboard. Field values are written
   only when loading an order, after a save, or from `/parse`.
+- **The service worker caches the app shell and NOTHING ELSE. No API response, ever.**
+  This app's whole job is reading and writing live order data, so a cached order list is
+  not a stale convenience — it is a staff member looking at orders already dealt with,
+  or saving against state that moved underneath them. There is no
+  stale-while-revalidate, no fallback to a previous response, and no offline write
+  queue: a save that cannot reach the server **fails visibly** so the person retries
+  deliberately. Queueing writes invisibly is how a customer ends up with two identical
+  orders.
+  - The rule is enforced in `routeFor()` in `app/public/sw.js`, which returns `network`
+    for any non-GET, for any cross-origin request (the API is on another origin, and
+    those still pass through a worker), and for anything under `/wp-json/`. `network`
+    means the worker never calls `respondWith`, so the browser behaves exactly as it
+    would with no worker installed. `app/test/sw-routing.test.mjs` pins all of it.
+  - The shell is cache-first so a cold launch paints immediately. Hashed bundle names
+    are cached at runtime rather than precached, which is safe because they are
+    content-hashed: a new build means new URLs, not new contents at an old URL.
+- **`SHELL_VERSION` in `app/public/sw.js` MUST be bumped whenever the shell changes.**
+  It names the cache, and changing it is also the only thing that makes the worker's
+  bytes differ — which is the only thing that makes a browser notice a new worker. Ship
+  a rebuilt shell without bumping it and installed clients keep serving the OLD
+  `index.html`, and therefore the old bundle, indefinitely. There is no automatic
+  invalidation behind this.
+- **An update is offered, never applied.** A new worker waits; the app shows a
+  dismissible "update is ready" banner and only reloads when tapped. Auto-reloading
+  would discard a half-filled order form.
+- **The PWA pins the app to the domain root.** `start_url`, `scope`, the icon paths and
+  the `/sw.js` registration are all absolute, so `app/dist/` is no longer portable to a
+  subdirectory the way `base: './'` in `vite.config.js` was meant to allow. Fine for
+  `ops.cartmixbd.com`; it is a deliberate narrowing, not an oversight.
 - The app builds nodes and sets `textContent`; it never assembles HTML from data.
   Order data is staff-pasted free text, so string-built markup would be an injection
   risk. `dom.js` has no `html` option by design.
@@ -479,10 +517,9 @@ parser becomes one feature inside it, not the whole tool.
 | 6b | Product picker — sheet over the form, cached search | built, **unverified in a browser** | — |
 | 6c | Trash view and restore | built, **unverified in a browser** | 6.6 |
 
-**Step 7 is next, and it is the last one.** 6a, 6b and 6c are built but unverified in a
-browser — that is the entire remaining unknown. Nothing in the API is waiting on
-anything.
-| 7 | Manifest, service worker, install prompt | not started | — |
+**All seven steps are built.** 6a, 6b, 6c and 7 are unverified in a browser, and that is
+the entire remaining unknown. Nothing in the API is waiting on anything.
+| 7 | Manifest, service worker, install prompt | built, **unverified in a browser** | — |
 
 **The API layer is complete and signed off.** Step 3 at 5.6/5.7 with 3d/3e verified at
 6.2/6.3, step 4a at 5.8, 4b at 5.9, 4c and 4d at 6.1 — every endpoint confirmed by real
@@ -674,6 +711,24 @@ failure throws an `ApiError` whose message is shown and a transport failure thro
 with `isNetwork` set. Aborting mid-body-read behaves the same way, which matters because
 that path does not pass through `api.js`'s `try`/`catch` around `fetch()`.
 
+Step 7 (installability) — verified as far as is possible without a browser, which is
+further than it sounds but is not the same thing:
+
+- The manifest parses, and meets Chrome's installability criteria: name, short_name,
+  `start_url`, `display: standalone`, 192 and 512 PNG icons plus a 512 maskable. Each
+  declared icon file exists and really is the size it claims. `theme_color` and
+  `background_color` are the CSS `--accent` and `--bg`, and the `theme-color` meta tag
+  agrees with the manifest.
+- The production build serves `/manifest.webmanifest` as `application/manifest+json`,
+  `/sw.js` as `text/javascript`, and all four icons as `image/png`.
+- The bundle registers the worker, and the `import.meta.env.PROD` guard compiles away
+  rather than shipping as a runtime check — so no worker is registered in development.
+- **There is no Lighthouse PWA score to report. Lighthouse removed the PWA category in
+  v12.0 (April 2024)**, after Chrome stopped requiring a service worker for
+  installability. The checks above assert those criteria directly instead; the remaining
+  confirmation is Chrome DevTools → Application → Manifest, and whether
+  `beforeinstallprompt` actually fires.
+
 `POST /parse` at **6.6**, closing the last parser verification gap — both 6.5 fixes
 confirmed through the endpoint, not just locally:
 
@@ -745,6 +800,15 @@ parses clean under `php -l`, which had never been checked before.
   missed; and variation-level SKUs are findable only by exact match via
   `wc_get_product_id_by_sku()`, the parent-first search never reaching a partial one.
   Parent/simple SKU partial matching IS verified.
+- **Step 7 has not run in a browser, and some of it cannot run on the dev server.** The
+  worker is registered only in a production build, so install, the offline shell and the
+  update prompt need `npm run build && npm run preview`. Unexercised: that the install
+  banner appears when `beforeinstallprompt` fires and that dismissal persists; that the
+  iOS hint appears on an iPhone and not elsewhere; that a cold launch works offline and
+  shows the "No connection" state rather than an empty list; that bumping
+  `SHELL_VERSION` produces the update banner and that tapping it reloads into the new
+  bundle; and that an API request really is absent from the worker's cache in DevTools.
+  The routing rule behind that last one is unit-tested.
 - **The app's three newest screens have not run in a browser.** Every endpoint they
   call is verified on staging; what is unexercised is the app itself. Specifically:
   - **Order form:** the Price/Total pair, the stepper recalculating Total, editing Total

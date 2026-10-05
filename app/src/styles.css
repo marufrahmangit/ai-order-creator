@@ -898,3 +898,44 @@ button {
   font-weight: 600;
   color: var(--danger);
 }
+
+/* ---------- PWA banners (install / iOS hint / update) ---------- */
+
+.pwa-banner {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 2px 14px rgb(17 24 39 / 22%);
+}
+
+.pwa-banner-text {
+  flex: 1 1 12rem;
+  margin: 0;
+  font-size: 14px;
+}
+
+.pwa-banner-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* .primary is full-width by default, which is wrong inside a row. */
+.pwa-banner-action.primary {
+  width: auto;
+}
+
+/* Lift the order list's floating button clear of the banner rather than
+   letting them overlap. */
+body.has-pwa-banner .fab {
+  bottom: calc(88px + env(safe-area-inset-bottom));
+}

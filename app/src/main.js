@@ -13,6 +13,7 @@ import { isConfigured, apiBase } from './api.js'
 import { isSignedIn, clearCredential, getCredential } from './auth.js'
 import { loadMeta, clearMeta } from './meta.js'
 import { clearProductCache } from './views/product-picker.js'
+import { initPwa } from './pwa.js'
 import { LoginView } from './views/login.js'
 import { OrdersView } from './views/orders.js'
 import { OrderFormView } from './views/order-form.js'
@@ -198,6 +199,10 @@ window.addEventListener('orderops:signedout', () => {
   clearMeta()
   showLogin()
 })
+
+// Independent of which screen renders: the worker and the install offer are
+// about the app as a whole, not about being signed in.
+initPwa()
 
 if (!isConfigured()) {
   showSetupNeeded()

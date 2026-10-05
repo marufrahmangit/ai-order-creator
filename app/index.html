@@ -6,7 +6,12 @@
          safe-area insets in styles.css have an effect on notched screens. -->
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#1f2937" />
-    <!-- No manifest or service worker yet: those are step 7. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- iOS ignores the manifest for the home screen icon, so it needs its own
+         link. 180x180 is what it wants; anything else gets rescaled. -->
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Order Ops" />
     <title>Order Ops</title>
   </head>
   <body>
