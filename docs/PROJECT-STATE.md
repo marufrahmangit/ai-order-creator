@@ -9,19 +9,14 @@ directions, and the PWA shell confirmed in a browser. **No plugin work is outsta
 
 ## Start here
 
-**Next task: step 6b, the product picker.** It replaces the temporary
-add-by-product-id input in the order form (`app/src/views/order-form.js`, marked
-`STOPGAP - STEP 6a ONLY`). `GET /products` is finished and verified for it:
-price-ascending ordering, compound terms like `three 2500`, `fields=picker` for a
-five-key row, and `timing_ms`. The picker must enforce the 3-character minimum
-client-side, debounce at ~250-300ms and cancel in-flight requests per keystroke —
-`views/orders.js` already does all three and is the pattern to copy.
+**Next task: step 7** — manifest, service worker, install prompt. That is the last
+build step; steps 1-6 are done.
 
-**After that: step 7** — manifest, service worker, install prompt.
-
-**Unverified in a browser, and worth doing before building more:** the order form
-(step 6a, including the revised Price/Total line editing) and the trash view (6c) have
-never been run against staging. Everything else in the app has.
+**Before building it, run the app in a browser.** Three pieces have never been
+exercised there and they are now the whole unverified surface: the order form (6a,
+including the Price/Total line editing), the trash view (6c), and the product picker
+(6b). Everything underneath them — every endpoint they call — is verified on staging.
+`npm run dev` in `app/`, with `ai_app_origin` already set to `http://localhost:5173`.
 
 **Still outstanding operationally, none of it code:**
 
@@ -148,11 +143,14 @@ parser becomes one feature inside it, not the whole tool.
     requiring it without `ABSPATH` defined exits silently with status 0.
   - The Groq path still cannot be exercised locally: it needs network and a key. Only
     the deterministic pipeline is reachable, which is where the parsing logic lives.
-- App tests: `npm test` in `app/`. No dependencies, no browser — it runs the real
-  `src/api.js` against a throwaway localhost server. Currently one file,
-  `app/test/api-abort.test.mjs`, pinning the abort-versus-real-failure contract the
-  order list depends on. There is no PHP test harness; the plugin is still verified by
-  curl against staging.
+- App tests: `npm test` in `app/`. No dependencies, no browser. Two files:
+  `test/api-abort.test.mjs` runs the real `src/api.js` against a throwaway localhost
+  server, pinning the abort-versus-real-failure contract the order list depends on;
+  `test/picker-logic.test.mjs` lifts the pure half of `views/product-picker.js` and
+  asserts the cache-narrowing lookup and the client-side filter, which is where "typing
+  feels instant" lives and where a wrong rule would show a staff member a product that
+  does not match what they typed. Both work by transforming the real source rather than
+  by duplicating logic, so they cannot drift from it silently.
 - App layout (`app/src/`): `api.js` is the ONLY module that calls `fetch` — one place
   where auth, CORS, error shape and abort handling live. `auth.js` owns the stored
   credential, `meta.js` the session-cached `/meta`, `format.js` money and dates,
@@ -419,9 +417,34 @@ parser becomes one feature inside it, not the whole tool.
   `product_type` / `product_visibility` terms, so an unprimed loop costs three database
   round-trips per product. This is not a micro-optimisation: at 6.2 it was the difference
   between 47ms and 438ms. Prime the whole candidate window in one call, then loop.
-- The step 6 product picker must enforce the 3-character minimum client-side, debounce
-  input at ~250–300ms, and cancel in-flight requests per keystroke so responses cannot
-  arrive out of order.
+- The product picker enforces the 3-character minimum client-side, debounces at 300ms
+  and cancels in-flight requests per keystroke, so responses cannot arrive out of order.
+  It follows `views/orders.js` rather than reimplementing any of it.
+- **The picker is a sheet over the order form, not a route.** The form stays mounted
+  underneath, which is what keeps unsaved edits alive across opening and closing it.
+- **A picked product becomes a NEW line, even when that product is already on the
+  order.** Checked against WooCommerce before implementing:
+  `WC_Abstract_Order::add_product()` builds a fresh `WC_Order_Item_Product` on every
+  call and `add_item()` appends it with no lookup by product id. (The CART merges by
+  cart item key — a different code path, and not the one the order editor uses.) Our own
+  `ai_rest_add_line_items()` calls `add_product()` per payload entry, so duplicate ids
+  become separate lines server-side too; merging client-side would have disagreed with
+  both. This reverses the add-by-id stopgap, which merged.
+- **Search results are cached per term in memory for the app session.** Server-side
+  search is 40-90ms against several hundred ms of round-trip, so the network is the
+  latency and the cache is where it goes. A repeat term renders with no request at all;
+  a narrowing term (the new term extends a cached one) filters the cached rows and
+  renders immediately, then reconciles with the server's answer. The client-side filter
+  is deliberately an approximation that errs toward showing FEWER rows, so the worst
+  case is a row appearing a moment later, never a wrong row.
+  - The trade-off: a price changed in wp-admin mid-session is not seen until the cache
+    is dropped, and because each line sends its own `total`, an order could be saved at
+    the stale figure. Bounded by the session; sign-out clears it along with `/meta`.
+  - Memory only, never persisted.
+- **Out-of-stock products are shown greyed and not tappable, never hidden.** Someone
+  searching for a thing that exists needs to see that it exists. The API returns them
+  with `is_in_stock` false for exactly this reason, and the write endpoints re-check
+  stock independently.
 - Search minimum is 3 characters, so prices below 100 are not searchable by price.
   Accepted trade-off; revisit if sub-100 items appear.
 - Price search uses `wc_get_products(['price' => …])`, confirmed on 11.0.1 to narrow the
@@ -453,11 +476,12 @@ parser becomes one feature inside it, not the whole tool.
 | 4d | `POST /token` — login; account password → app password | done, **verified on staging** at 6.1 | 6.1 |
 | 5 | PWA shell — subdomain, auth, order list | auth + list done, **verified in a browser** against 6.1; **subdomain not yet stood up** | — |
 | 6a | Order form — fields, paste-and-parse, line items, totals, save, trash | built, **unverified in a browser** | — |
-| 6b | Product picker — replaces the temporary add-by-id control | **next** | — |
+| 6b | Product picker — sheet over the form, cached search | built, **unverified in a browser** | — |
 | 6c | Trash view and restore | built, **unverified in a browser** | 6.6 |
 
-**Step 6b is next.** 6a and 6c are built but unverified in a browser; nothing in the API
-is waiting on anything.
+**Step 7 is next, and it is the last one.** 6a, 6b and 6c are built but unverified in a
+browser — that is the entire remaining unknown. Nothing in the API is waiting on
+anything.
 | 7 | Manifest, service worker, install prompt | not started | — |
 
 **The API layer is complete and signed off.** Step 3 at 5.6/5.7 with 3d/3e verified at
@@ -650,6 +674,15 @@ failure throws an `ApiError` whose message is shown and a transport failure thro
 with `isNetwork` set. Aborting mid-body-read behaves the same way, which matters because
 that path does not pass through `api.js`'s `try`/`catch` around `fetch()`.
 
+`POST /parse` at **6.6**, closing the last parser verification gap — both 6.5 fixes
+confirmed through the endpoint, not just locally:
+
+- The bulleted input parses clean: markers stripped, and **the customer name no longer
+  injected into the address**. That was the whole defect, and its root cause was that an
+  empty `$name` made `ai_remove_value_all()` a no-op.
+- A Tongi address resolves to **`BD-18` Gazipur with 120.00 shipping**, so the new alias
+  reaches the shipping rate table and not just the state field.
+
 `status=trash` and custom statuses on the write path, confirmed on staging at **6.6**:
 
 - **`GET /orders?status=trash` returns trashed orders**, with `status_label` `"Trash"`.
@@ -712,17 +745,22 @@ parses clean under `php -l`, which had never been checked before.
   missed; and variation-level SKUs are findable only by exact match via
   `wc_get_product_id_by_sku()`, the parent-first search never reaching a partial one.
   Parent/simple SKU partial matching IS verified.
-- **The 6.5 parser fixes are deployed but not re-exercised through `/parse`.** Staging
-  runs 6.6, so the code is there, and the fixes are verified locally against a real PHP -
-  stronger evidence than this project usually has. What has not happened is a
-  `POST /parse` on staging with a bulleted message or a Tongi address, which is the only
-  thing that also covers the REST wrapper and the Groq fallback. One request each.
-- **The trash VIEW and the revised order form have not run in a browser.** The endpoint
-  side of both is verified on staging; what is unexercised is the app. Specifically:
-  Restore removing a row and decrementing the count, the empty state, that a trashed row
-  cannot be opened, and — in the order form — the new Price/Total pair, the quantity
-  stepper recalculating Total, editing Total leaving Price alone, fees, and partial
-  update leaving untouched fields alone.
+- **The app's three newest screens have not run in a browser.** Every endpoint they
+  call is verified on staging; what is unexercised is the app itself. Specifically:
+  - **Order form:** the Price/Total pair, the stepper recalculating Total, editing Total
+    leaving Price alone, fees including a negative one, and partial update leaving
+    untouched fields alone.
+  - **Trash view:** Restore removing a row and decrementing the count, the empty state,
+    and that a trashed row cannot be opened.
+  - **Product picker:** that results render and are tappable, that an out-of-stock row
+    is greyed and inert, that a repeat term fires no request, and that narrowing feels
+    instant. The cache-narrowing and filter logic IS covered by
+    `app/test/picker-logic.test.mjs`; what is untested is the sheet around it.
+- **The picker's close affordance sits at the top of the sheet, not in thumb reach.**
+  With a full-height sheet and the keyboard up, the head row is the only region the
+  keyboard cannot cover, so Close lives beside the search box. Escape and a backdrop tap
+  also close it. If one-handed use proves awkward in practice, a swipe-down gesture is
+  the obvious addition.
 - **The orders list may include `checkout-draft` carts.** Our default status arg is
   `array_keys(wc_get_order_statuses())`, which INCLUDES `wc-checkout-draft`, whereas
   WooCommerce's own empty/'any' handling excludes anything flagged

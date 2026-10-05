@@ -12,6 +12,7 @@ import './styles.css'
 import { isConfigured, apiBase } from './api.js'
 import { isSignedIn, clearCredential, getCredential } from './auth.js'
 import { loadMeta, clearMeta } from './meta.js'
+import { clearProductCache } from './views/product-picker.js'
 import { LoginView } from './views/login.js'
 import { OrdersView } from './views/orders.js'
 import { OrderFormView } from './views/order-form.js'
@@ -83,8 +84,10 @@ function showLogin() {
  */
 function signOut() {
   clearCredential()
-  // A different user must not inherit the previous one's cached lists.
+  // A different user must not inherit the previous one's cached lists, nor the
+  // product search results cached for this session.
   clearMeta()
+  clearProductCache()
   route = null
   showLogin()
 }

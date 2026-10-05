@@ -19,6 +19,7 @@ import { fetchOrder, parseText, createOrder, updateOrder, trashOrder } from '../
 import { districts, orderStatuses } from '../meta.js'
 import { formatMoney, formatAmount } from '../format.js'
 import { el, clear } from '../dom.js'
+import { ProductPicker } from './product-picker.js'
 
 /** Every field whose dirty state is tracked, in payload-key form. */
 const FIELDS = ['name', 'phone', 'address_1', 'state', 'status', 'customer_note']
@@ -463,69 +464,74 @@ export function OrderFormView({ orderId, onClose, signal }) {
     }
   }
 
-  /*
-   * ------------------------------------------------------------------------
-   * STOPGAP - STEP 6a ONLY. REPLACED BY THE PRODUCT PICKER IN STEP 6b.
-   * ------------------------------------------------------------------------
-   *
-   * A raw product_id typed in by hand. Nobody should have to use this; it
-   * exists so the items list and the save path can be exercised before the
-   * picker exists.
-   *
-   * The id is sent BLIND - deliberately, not as a shortcut. GET /products has
-   * no id lookup: ai_rest_parse_search_term() reads a wholly numeric term as a
-   * PRICE, so ?search=9167 returns products COSTING 9167, not product 9167.
-   * Resolving through it would show a confidently wrong name and price, which
-   * is worse than showing none. The server resolves the id on save and the
-   * re-render fills in the real name and price; an id that does not exist
-   * comes back as a warning with the line skipped.
+  // ------------------------------------------------------------- add product
+
+  /**
+   * The picker, opened as a sheet OVER this form rather than as a route, so
+   * the form stays mounted and unsaved edits survive opening and closing it.
    */
-  const addIdInput = el('input', {
-    type: 'number',
-    class: 'add-id-input',
-    min: 1,
-    step: 1,
-    inputmode: 'numeric',
-    placeholder: 'Product ID',
-    'aria-label': 'Product ID to add',
+  let picker = null
+
+  function closePicker() {
+    picker?.remove()
+    picker = null
+    addProductButton.focus()
+  }
+
+  function openPicker() {
+    if (picker) return
+
+    picker = ProductPicker({
+      onPick: (product) => {
+        addPickedProduct(product)
+        closePicker()
+      },
+      onClose: closePicker,
+    })
+
+    view.append(picker)
+  }
+
+  /**
+   * Add a picked product as a NEW line.
+   *
+   * A separate line even when the product is already on the order, because
+   * that is what WooCommerce does: WC_Abstract_Order::add_product() builds a
+   * fresh WC_Order_Item_Product every call and add_item() appends it with no
+   * lookup by product id. (The CART merges by cart item key - a different code
+   * path, and not the one the order editor uses.) Our own
+   * ai_rest_add_line_items() calls add_product() per payload entry, so
+   * duplicate ids become separate lines server-side too; merging here would
+   * have disagreed with both.
+   *
+   * Quantity 1, Price from the search result, Total as price x 1.
+   */
+  function addPickedProduct(product) {
+    const price = toNumber(product.price)
+
+    state.items.push(makeItem({
+      product_id: Number(product.id) || 0,
+      name: product.name || `Product ${product.id}`,
+      price,
+      quantity: 1,
+      total: price,
+    }))
+
+    state.itemsDirty = true
+
+    renderItems()
+    renderTotals()
+    setMessage(`Added ${product.name || 'product'}.`)
+  }
+
+  const addProductButton = el('button', {
+    type: 'button',
+    class: 'button',
+    text: 'Add product',
+    onClick: openPicker,
   })
 
-  const addButton = el('button', { type: 'button', class: 'button', text: 'Add' })
-
-  addButton.addEventListener('click', () => {
-    const productId = Number.parseInt(addIdInput.value, 10)
-    if (!Number.isInteger(productId) || productId < 1) {
-      setMessage('Enter a product ID to add.', 'error')
-      return
-    }
-
-    // Merging rather than appending a second row: with ids typed by hand, a
-    // repeat is far more likely to be a mistake than an intended duplicate
-    // line. The picker in 6b can make its own call.
-    const existing = state.items.find((item) => item.product_id === productId)
-    if (existing) {
-      setQuantity(existing, existing.quantity + 1)
-    } else {
-      state.items.push(makeItem({
-        product_id: productId,
-        name: `Product ${productId}`,
-        price: null,
-        quantity: 1,
-        total: null,
-      }))
-      state.itemsDirty = true
-      renderItems()
-      renderTotals()
-    }
-
-    addIdInput.value = ''
-    setMessage('Added. Save to resolve its name and price.')
-  })
-
-  const addItemBox = el('div', { class: 'add-item' }, [
-    el('p', { class: 'field-hint', text: 'Temporary: add by product ID. The product picker arrives in step 6b.' }),
-    el('div', { class: 'add-item-row' }, [addIdInput, addButton]),
-  ])
+  const addItemBox = el('div', { class: 'add-item' }, [addProductButton])
 
   // ---------------------------------------------------------------- fees
 

@@ -309,6 +309,22 @@ export function restoreOrder(id, signal) {
   return request(`/orders/${encodeURIComponent(id)}/restore`, { method: 'POST', signal })
 }
 
+/**
+ * GET /products - the picker's search.
+ *
+ * `fields=picker` trims each row to id, name, sku, price and is_in_stock, and
+ * skips the per-row attachment lookup the full shape needs. The API enforces a
+ * 3-character minimum with a 400, so callers gate on it rather than relying on
+ * the error.
+ *
+ * Returns { products, timing_ms }. Ordering is the server's: for a numeric term
+ * exact price matches first then name/SKU matches, cheapest-first throughout;
+ * for a compound term like "three 2500" the intersection.
+ */
+export function fetchProducts({ search, limit, fields = 'picker' } = {}, signal) {
+  return request('/products', { params: { search, limit, fields }, signal })
+}
+
 /** GET /ping - auth and CORS smoke test. */
 export function ping(signal) {
   return request('/ping', { signal })
