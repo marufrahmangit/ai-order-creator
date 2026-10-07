@@ -17,7 +17,7 @@
  * a recorded decision: staff search by phone.
  */
 
-import { fetchOrders, restoreOrder } from '../api.js'
+import { fetchOrders, fetchOrder, restoreOrder } from '../api.js'
 import { getCredential } from '../auth.js'
 import { orderStatuses } from '../meta.js'
 import { formatMoney, formatDateTime } from '../format.js'
@@ -35,6 +35,7 @@ const SEARCH_DEBOUNCE_MS = 300
  *   onOpenOrder?: (id: number) => void,
  *   onNewOrder?: () => void,
  *   onShowTrash?: () => void,
+ *   onReorder?: (order: object) => void,
  *   onClose?: () => void,
  * }} options
  */
@@ -44,6 +45,7 @@ export function OrdersView({
   onOpenOrder,
   onNewOrder,
   onShowTrash,
+  onReorder,
   onClose,
 }) {
   const isTrash = mode === 'trash'
@@ -138,6 +140,43 @@ export function OrdersView({
     ]
   }
 
+  /**
+   * The row's Reorder button.
+   *
+   * Same label, look and behaviour as the one on the last-order card: it opens
+   * a NEW order form pre-filled from this order, and writes nothing. The list
+   * endpoint returns summaries with no line items, so it has to fetch the full
+   * order first - several hundred milliseconds, hence the loading state.
+   */
+  function reorderButton(order) {
+    const button = el('button', {
+      type: 'button',
+      class: 'button row-reorder',
+      text: 'Reorder',
+      'aria-label': `Reorder order ${order.number}`,
+    })
+
+    button.addEventListener('click', async (event) => {
+      // The whole row opens the edit form, so this tap must not reach it.
+      event.stopPropagation()
+
+      button.disabled = true
+      button.textContent = 'Loading…'
+
+      try {
+        const full = await fetchOrder(order.id)
+        onReorder(full)
+      } catch (error) {
+        if (error?.status === 401) return
+        button.disabled = false
+        button.textContent = 'Reorder'
+        setMessage(error?.message || 'Could not load that order to reorder.', 'error')
+      }
+    })
+
+    return button
+  }
+
   function renderOrderCard(order) {
     const open = () => onOpenOrder(order.id)
 
@@ -156,7 +195,7 @@ export function OrdersView({
         event.preventDefault()
         open()
       },
-    }, cardBody(order))
+    }, [...cardBody(order), el('div', { class: 'row-actions' }, [reorderButton(order)])])
   }
 
   /**

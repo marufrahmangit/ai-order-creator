@@ -22,6 +22,7 @@ import { el, clear, debounce } from '../dom.js'
 import { ProductPicker } from './product-picker.js'
 import { LastOrderCard } from './last-order.js'
 import { normalizeBdPhone } from '../phone.js'
+import { reorderSource } from '../reorder.js'
 
 /** Every field whose dirty state is tracked, in payload-key form. */
 const FIELDS = ['name', 'phone', 'address_1', 'state', 'status', 'customer_note']
@@ -58,10 +59,11 @@ function parseTypedAmount(text) {
  *   orderId: number|null,
  *   onClose: () => void,
  *   onOpenOrder: (id: number) => void,
+ *   reorderFrom?: object,
  *   signal?: AbortSignal,
  * }} options
  */
-export function OrderFormView({ orderId, onClose, onOpenOrder, signal }) {
+export function OrderFormView({ orderId, onClose, onOpenOrder, reorderFrom, signal }) {
   const state = {
     orderId: orderId ?? null,
     /** Fields the user has actually changed. Drives the partial update. */
@@ -242,9 +244,10 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, signal }) {
    * Copy a previous order into this form, for review.
    *
    * REORDER FILLS THE FORM. It does not create anything - the staff member
-   * reads it over and taps Save like any other order. (A Clone action that
-   * creates an order outright is a different operation and must not share this
-   * label or this code path.)
+   * reads it over and taps Save like any other order, and the new order gets
+   * its number then. There is exactly one Reorder concept in this app, reached
+   * from here and from each row of the order list, and nothing anywhere
+   * creates an order outright.
    *
    * Everything comes from the order object the card already holds, so there is
    * no second request.
@@ -265,28 +268,21 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, signal }) {
    * @param {object} order
    */
   function applyReorder(order) {
-    const lines = Array.isArray(order.line_items) ? order.line_items : []
-    const fees = Array.isArray(order.fee_lines) ? order.fee_lines : []
+    // WHAT gets copied is defined once, in src/reorder.js, and shared with the
+    // order list's Reorder. Only the applying is local to this form.
+    const source = reorderSource(order)
 
-    state.items = lines.map((line) => {
-      const quantity = Math.max(1, Number(line.quantity) || 1)
-      const total = toNumber(line.total)
-      return makeItem({
-        product_id: Number(line.product_id) || 0,
-        name: line.name || `Product ${line.product_id}`,
-        quantity,
-        total,
-        // Derived the same way a loaded order derives it, so Price and Total
-        // agree on screen.
-        price: total === null ? null : total / quantity,
-      })
-    })
-
-    state.fees = fees.map((fee) => makeFee({
-      name: fee.name || '',
-      // Negative stays negative: a discount is a negative fee.
-      total: toNumber(fee.total),
+    state.items = source.lines.map((line) => makeItem({
+      product_id: line.product_id,
+      name: line.name,
+      quantity: line.quantity,
+      total: line.total,
+      // Derived the same way a loaded order derives it, so Price and Total
+      // agree on screen.
+      price: line.total === null ? null : line.total / line.quantity,
     }))
+
+    state.fees = source.fees.map((fee) => makeFee(fee))
 
     // MUST be marked dirty. Both lists are all-or-nothing on update, so without
     // these flags the payload omits them entirely and the copy saves nothing.
@@ -296,16 +292,28 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, signal }) {
     // Only fill what the user has not. They may be correcting the customer's
     // details, and overwriting a name somebody just typed would be rude at best.
     const fill = (key, control, value) => {
-      if (control.value.trim() !== '') return
+      if (String(control.value).trim() !== '') return
       if (typeof value !== 'string' || value.trim() === '') return
       control.value = value
       state.dirty.add(key)
     }
 
-    const billing = order.billing || {}
-    fill('name', nameInput, billing.first_name)
-    fill('address_1', addressInput, billing.address_1)
-    fill('customer_note', noteInput, order.customer_note)
+    fill('name', nameInput, source.fields.name)
+    fill('phone', phoneInput, source.fields.phone)
+    fill('address_1', addressInput, source.fields.address_1)
+    fill('customer_note', noteInput, source.fields.customer_note)
+
+    // The district is a select, so only a code /meta actually offers can be
+    // set - an unknown one would either be invented or silently land as ''.
+    const district = source.fields.state
+    if (district !== '' && String(districtSelect.value).trim() === '') {
+      const offered = Array.from(districtSelect.options || [])
+        .some((option) => option.value === district)
+      if (offered) {
+        districtSelect.value = district
+        state.dirty.add('state')
+      }
+    }
 
     renderItems()
     renderFees()
@@ -1421,6 +1429,11 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, signal }) {
 
   if (state.orderId !== null) {
     load()
+  } else if (reorderFrom) {
+    // Reorder from the order list: a blank new-order form, pre-filled. Nothing
+    // to overwrite, so no confirmation - unlike the card's Reorder, which can
+    // land on a form that already has items.
+    applyReorder(reorderFrom)
   }
 
   return view

@@ -1064,3 +1064,24 @@ body.has-pwa-banner .fab {
 .last-order-total .last-order-line-label {
   color: var(--ink);
 }
+
+/* ---------- Order list row actions ---------- */
+
+/* The row's own action strip. Deliberately not .card-actions, which stretches
+   its button full width for the trash view's single Restore - twenty
+   full-width buttons down the order list would bury the orders themselves. */
+.row-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+/* Same label, same look and same behaviour as the Reorder button on the
+   last-order card, which is the point: one concept, one affordance. */
+.row-reorder {
+  min-height: 40px;
+  padding: 0 16px;
+  font-weight: 600;
+}

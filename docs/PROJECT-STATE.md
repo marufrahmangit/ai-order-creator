@@ -201,11 +201,17 @@ parser becomes one feature inside it, not the whole tool.
     app actually puts together, reading the real stylesheet so a colour changed there is
     checked without anyone remembering to. It also asserts structurally that no
     `.badge-*` rule can select outside the badge.
-  - `test/reorder.test.mjs` — asserts Reorder through the SAVE PAYLOAD: that items, fees
-    and the note are copied, that the old status is not, that shipping and identity are
-    not sent, that a typed name survives, and that the first tap on a form with items
-    only warns. The payload is the right place to look because the dirty-marking is
-    invisible anywhere else - a copy that forgets it renders perfectly and saves nothing.
+  - `test/reorder.test.mjs` — asserts Reorder through the SAVE PAYLOAD: that items, fees,
+    the note and the district are copied, that the old status is not, that shipping and
+    identity are not sent, that a typed name survives, and that the first tap on a form
+    with items only warns. It also compares the payloads from BOTH entry points for the
+    same source order and asserts they are identical, which is the only way to show that
+    and not just assert it. The payload is the right place to look because the
+    dirty-marking is invisible anywhere else - a copy that forgets it renders perfectly
+    and saves nothing.
+    - Note it loads `/meta` first, as every real screen does behind `withMeta()`.
+      Without that the district copy is correctly skipped, because no district is on
+      offer, and the test would quietly be asserting the wrong thing.
   - The DOM shim and module loader the view tests share live in `test/dom-shim.mjs`.
 - **`app/src/phone.js` is the one piece of logic deliberately duplicated between PHP and
   JS**, and it exists only to decide whether a half-typed number is worth a last-order
@@ -300,14 +306,32 @@ parser becomes one feature inside it, not the whole tool.
   a digit hides the card without forgetting the lookup, so retyping the same number
   re-shows it from memory and backspacing through a number costs no requests at all. A
   `{found: false}` answer is cached too, so a new customer's number is not asked about
-  twice. The cache is dropped whenever the order id changes, because `exclude` is part
-  of the question.
-- **"Reorder" fills the form from a previous order. It does NOT create one.** The action
-  sits inside the expanded last-order card, beside the order number, so it reads as an
-  action on that specific order rather than on the form. It copies `line_items`
-  (product_id, quantity, total), `fee_lines` (name, total, negatives intact) and the
-  customer note, from the order object the card already holds - no second request. The
-  staff member reviews and taps Save like any other order.
+  twice. The cached answer is now independent of which order is open — the question is
+  only ever "what is this number's most recent order" — so whether to SHOW it is decided
+  at render time, not by re-asking.
+- **There is exactly ONE Reorder concept, and it never writes to the server.** Reorder
+  opens or fills a NEW order form, pre-filled from an existing order. The order is
+  created when the staff member taps Save, and gets its number then, like any other new
+  order.
+  - **Two entry points, identical behaviour:** the button inside the expanded
+    last-order card in the form, and one on each row of the order list. What gets copied
+    is defined once in `app/src/reorder.js` and both go through the same
+    `applyReorder()`, so there is nothing to keep in step.
+  - **A separate "Clone" action was considered and dropped.** It would have created an
+    order immediately from a list row. Two actions that both mean "make another one like
+    this" - one reviewable, one instant - is a mistap away from an order nobody placed,
+    and the names do not tell you which is which. One concept that always lands in a
+    reviewable form is less to explain and has no destructive variant. The word is
+    deliberately absent from the code.
+  - It copies `name`, `phone`, `address_1`, `state`, `customer_note`, `line_items`
+    (product_id, quantity, total) and `fee_lines` (name, total, negatives intact).
+    **`state` matters more than it looks**: shipping is a pure function of the district,
+    so a reorder that dropped it would price the order wrongly until someone noticed an
+    empty dropdown. The district is only set to a code `/meta` actually offers — an
+    unknown one is skipped rather than invented.
+  - From the CARD there is no extra request: the card already holds the full order. From
+    a LIST ROW there is one, because the list endpoint returns summaries with no line
+    items — hence the row button's loading state.
   - **NOT copied: status** (a new order starts at the form's default, not wherever the
     old one ended up), **shipping** (the server recalculates it from the district), and
     **the id, number and date** (this is a new order, not that one).
@@ -320,15 +344,15 @@ parser becomes one feature inside it, not the whole tool.
     payload for exactly that reason.
   - Replacing is wholesale, not appending, so a form that already has items or fees
     **asks once first** - the same tap-again step the navigation guard beside it uses.
+    Reordering from a list row opens a blank form, so there is nothing to overwrite and
+    nothing to confirm.
+  - The row's Reorder must **stop event propagation**: the whole row is a tap target that
+    opens the edit form, and without it a reorder would also navigate.
   - Stock is deliberately not pre-checked. A copied line may point at a product that has
     since gone out of stock or been deleted, and the write endpoint already handles both
     (adds out-of-stock anyway with a warning, skips a missing product with a warning).
     Those warnings surface after save like any others. Checking at copy time would
     duplicate the server's judgement against an order that is not saved yet.
-- **"Reorder" and "Clone" are different operations and must never share a label.**
-  Reorder fills the form for review and creates nothing. Clone - not built - would create
-  an order outright. Conflating them, or reusing one's code path for the other without
-  deciding to, turns a reviewable draft into an order somebody did not mean to place.
 - **The repeat-customer lookup shows the previous order, collapsed.** When the phone
   field holds a valid BD mobile the form fetches that customer's last order and renders
   a one-line summary below the field, expanding to its items, shipping, fees and total.
@@ -645,7 +669,7 @@ from the original plan - it is the repeat-customer lookup added afterwards, and 
 thing in this table not yet on staging.
 | 7 | Manifest, service worker, install prompt | done, **verified as an installed PWA** | — |
 | 8 | Repeat-customer last-order lookup | done, **not yet on staging** | 6.8 |
-| 9 | Reorder — fill the form from a previous order | done, **unverified in a browser** | app 0.2.0 |
+| 9 | Reorder — from the last-order card and from each list row | done, **unverified in a browser** | app 0.3.0 |
 
 **The API layer is complete and signed off.** Step 3 at 5.6/5.7 with 3d/3e verified at
 6.2/6.3, step 4a at 5.8, 4b at 5.9, 4c and 4d at 6.1 — every endpoint confirmed by real
@@ -949,15 +973,14 @@ parses clean under `php -l`, which had never been checked before.
   order whose phone is unchanged shows NO card while changing that phone to another
   customer's number shows theirs; and the AJAX admin tool still works after the lookup
   was extracted out from under it.
-- **Reorder has not run in a browser.** The copy itself is covered by
-  `app/test/reorder.test.mjs` through the save payload, but the card it lives in has
-  never been seen on a device. Worth checking: that the Reorder button is reachable in
-  the expanded card on a phone, that the confirmation reads clearly when the form already
-  has items, and that a copied line whose product has since gone out of stock produces
-  the server's warning after save rather than anything client-side.
-- **Clone is not built, and is a separate decision.** Reorder fills the form for review;
-  a Clone action would create an order outright. The two must not share a label or a code
-  path.
+- **Reorder has not run in a browser, from either entry point.** The copy is covered by
+  `app/test/reorder.test.mjs` through the save payload, including that both entry points
+  agree, but neither affordance has been seen on a device. Worth checking: that the row's
+  Reorder does not also open the edit form (propagation), that its loading state is
+  visible for the round trip the list row needs, that the card's button is reachable in
+  the expanded card on a phone, that the replace-confirmation reads clearly, and that a
+  copied line whose product has since gone out of stock produces the server's warning
+  after save rather than anything client-side.
 - **The picker's close affordance sits at the top of the sheet, not in thumb reach.**
   With a full-height sheet and the keyboard up, the head row is the only region the
   keyboard cannot cover, so Close lives beside the search box. Escape and a backdrop tap

@@ -57,7 +57,14 @@ globalThis.fetch = async (url, options = {}) => {
   requests.push({ url: u, method: options.method || 'GET', body: options.body ? JSON.parse(options.body) : null })
 
   let payload = {}
-  if (u.includes('/last-order')) payload = lookupAnswer
+  if (u.includes('/meta')) {
+    payload = {
+      states: [{ code: 'BD-13', label: 'Dhaka' }, { code: 'BD-18', label: 'Gazipur ' }],
+      statuses: [{ slug: 'pending', label: 'Pending payment' }, { slug: 'completed', label: 'Completed' }],
+      currency: 'BDT', price_decimals: 2, plugin_version: '6.8',
+    }
+  }
+  else if (u.includes('/last-order')) payload = lookupAnswer
   else if (options.method === 'POST') payload = { order: CURRENT, warnings: [] }
   else if (u.includes('/orders/')) payload = CURRENT
   else if (u.includes('/orders')) payload = { orders: [], total: 0, total_pages: 1, page: 1 }
@@ -71,6 +78,14 @@ globalThis.fetch = async (url, options = {}) => {
 }
 
 const { load, cleanup } = loadable(VIEW_MODULES)
+
+// Every screen in the real app is gated behind withMeta(), so the district and
+// status dropdowns are always populated by the time a form renders. Without
+// this the district copy is correctly SKIPPED - an un-offered code is never
+// invented - and the test would be asserting the wrong thing.
+const { loadMeta } = await load('meta.js')
+await loadMeta()
+
 const { OrderFormView } = await load('views/order-form.js')
 
 const results = []
@@ -215,6 +230,91 @@ async function newFormWithCard() {
   check('editing: status is not sent, since it was not touched', 'status' in (body || {}), false)
   check('editing: the update went to the order being edited',
     lastWrite()?.url.includes(`/orders/${EDITING_ID}`), true)
+}
+
+// ---- the LIST entry point produces the same payload as the card ----------
+//
+// Both must behave identically, and the only way to show that is to compare the
+// two payloads for the same source order rather than to read both code paths
+// and agree with oneself.
+{
+  /** Reorder from the card: new form, type the phone, expand, tap Reorder. */
+  async function viaCard() {
+    requests.length = 0
+    lookupAnswer = { found: true, order: PREVIOUS }
+
+    const view = OrderFormView({ orderId: null, onClose: () => {}, onOpenOrder: () => {} })
+    await settle(200)
+
+    const phone = phoneOf(view)
+    phone.value = OTHER_PHONE
+    fire(phone, 'input')
+    await settle(500)
+
+    fire(reorderOf(view), 'click')
+    await settle(100)
+    fire(saveOf(view), 'click')
+    await settle(300)
+
+    return lastWrite()?.body
+  }
+
+  /** Reorder from a list row: the form opens already pre-filled. */
+  async function viaList() {
+    requests.length = 0
+
+    const view = OrderFormView({
+      orderId: null,
+      reorderFrom: PREVIOUS,
+      onClose: () => {},
+      onOpenOrder: () => {},
+    })
+    await settle(200)
+
+    fire(saveOf(view), 'click')
+    await settle(300)
+
+    return lastWrite()?.body
+  }
+
+  const fromCard = await viaCard()
+  const fromList = await viaList()
+
+  check('the list entry point sends a payload', !!fromList, true)
+  check('list: line items are copied', fromList?.line_items?.length, 2)
+  check('list: fees are copied', fromList?.fee_lines?.length, 2)
+  check('list: the note is copied', fromList?.customer_note, 'Deliver after 6pm')
+  check('list: the district is copied, since shipping depends on it',
+    fromList?.state, 'BD-18')
+  check('list: the old status is not sent', fromList?.status === 'completed', false)
+  check('list: no shipping, id, number or date',
+    ['shipping_lines', 'id', 'number', 'date_created'].some((k) => k in (fromList || {})), false)
+
+  // The card path cannot copy the phone - typing it is what opened the card -
+  // so compare everything else, which is what "identical" has to mean here.
+  const { phone: cardPhone, ...cardRest } = fromCard || {}
+  const { phone: listPhone, ...listRest } = fromList || {}
+
+  check('both entry points send the same phone', cardPhone, listPhone)
+  check('both entry points produce an IDENTICAL payload otherwise',
+    listRest, cardRest)
+}
+
+// ---- Reorder from the list writes nothing until Save ---------------------
+{
+  requests.length = 0
+
+  const view = OrderFormView({
+    orderId: null,
+    reorderFrom: PREVIOUS,
+    onClose: () => {},
+    onOpenOrder: () => {},
+  })
+  await settle(300)
+
+  check('opening a pre-filled form makes no write', requests.filter((r) => r.method === 'POST').length, 0)
+  check('and no order id is adopted from the source',
+    findNode(view, (n) => n.className === 'app-title')?.textContent, 'New order')
 }
 
 cleanup()

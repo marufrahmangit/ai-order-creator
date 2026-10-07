@@ -109,6 +109,7 @@ export function loadable(relPaths) {
 /** The modules every view test needs. */
 export const VIEW_MODULES = [
   'dom.js', 'auth.js', 'api.js', 'meta.js', 'format.js', 'phone.js', 'pwa.js',
+  'reorder.js',
   'views/login.js', 'views/orders.js', 'views/order-form.js',
   'views/product-picker.js', 'views/last-order.js',
 ]

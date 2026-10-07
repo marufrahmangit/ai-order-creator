@@ -143,6 +143,34 @@ function showOrders() {
     onOpenOrder: showOrderForm,
     onNewOrder: () => showOrderForm(null),
     onShowTrash: showTrash,
+    onReorder: showReorderForm,
+  })))
+}
+
+/**
+ * A new order form pre-filled from an existing order.
+ *
+ * Reorder NEVER writes: this opens the same blank new-order form the + New
+ * button does, with the fields and lines copied in. The order is created when
+ * the user taps Save, and gets its number then.
+ *
+ * The route key names the source order, so reordering a different one is a
+ * different screen rather than being swallowed by the repeat-tap guard.
+ *
+ * @param {object} order A full order, already fetched by the list.
+ */
+function showReorderForm(order) {
+  const key = `form:new:from:${order?.id ?? '?'}`
+  if (key === route) return
+
+  const signal = beginScreen(key)
+
+  withMeta(() => mount(OrderFormView({
+    orderId: null,
+    reorderFrom: order,
+    onClose: showOrders,
+    onOpenOrder: showOrderForm,
+    signal,
   })))
 }
 
