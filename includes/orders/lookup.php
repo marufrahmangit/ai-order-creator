@@ -19,55 +19,34 @@ if (!defined('ABSPATH')) exit;
  * includes wc-checkout-draft, so passing it here would start surfacing
  * abandoned carts as somebody's last order.
  *
- * @param string $phone            Raw or normalized; normalized here either way.
- * @param int    $exclude_order_id An order to leave out, or 0. The app needs
- *                                 this while editing an order, or the lookup
- *                                 finds the order already open on screen.
+ * THE MOST RECENT ORDER, NEVER A SUBSTITUTE. This used to take an
+ * $exclude_order_id so the app could ask for "the last order that is not the
+ * one I am editing", which was the wrong question: the answer is the
+ * SECOND-most-recent order, presented as if it were the last one. On order
+ * 11354 that showed 11323, which is not that customer's last order and is
+ * misleading rather than merely unhelpful. Whether a caller wants to DISPLAY
+ * the answer is the caller's decision, and the app now makes it client-side.
+ *
+ * @param string $phone Raw or normalized; normalized here either way.
  * @return WC_Order|null
  */
-function ai_find_last_order_by_phone($phone, $exclude_order_id = 0) {
+function ai_find_last_order_by_phone($phone) {
     // Idempotent, so it does not matter whether the caller already did this.
     $phone = ai_normalize_bd_phone($phone);
     if ($phone === '') {
         return null;
     }
 
-    $exclude_order_id = absint($exclude_order_id);
-
-    $args = [
-        // One extra row when excluding, so the exclusion cannot leave an empty
-        // result where a second-most-recent order exists.
-        'limit'         => $exclude_order_id ? 2 : 1,
+    $orders = wc_get_orders([
+        'limit'         => 1,
         'orderby'       => 'date',
         'order'         => 'DESC',
         'billing_phone' => $phone,
-    ];
+    ]);
 
-    if ($exclude_order_id) {
-        // Supported by the HPOS query (it becomes `id != ...`), and mapped from
-        // post__not_in on the legacy post store.
-        $args['exclude'] = [$exclude_order_id];
-    }
-
-    $orders = wc_get_orders($args);
-    if (!is_array($orders)) {
+    if (!is_array($orders) || empty($orders)) {
         return null;
     }
 
-    foreach ($orders as $order) {
-        if (!$order instanceof WC_Order) {
-            continue;
-        }
-
-        // Defence in depth, the same way ai_rest_price_match_product_ids()
-        // re-checks the price it just queried on: if the 'exclude' arg is ever
-        // ignored, the caller still never sees the order it asked to skip.
-        if ($exclude_order_id && $order->get_id() === $exclude_order_id) {
-            continue;
-        }
-
-        return $order;
-    }
-
-    return null;
+    return $orders[0] instanceof WC_Order ? $orders[0] : null;
 }

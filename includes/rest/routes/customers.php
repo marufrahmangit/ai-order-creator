@@ -15,6 +15,13 @@ if (!defined('ABSPATH')) exit;
  * shipping_lines, fee_lines and all. There is deliberately no second order
  * shape in this API.
  *
+ * It answers one question: what is the most recent order for this number. It
+ * used to accept an `exclude` id as well, so the app could ask for the last
+ * order OTHER than the one being edited - but the answer to that is the
+ * second-most-recent order dressed up as the last one, which is worse than no
+ * answer. Removed in 6.8. Deciding whether to show the result is the client's
+ * business, not a query filter.
+ *
  * @param WP_REST_Request $request
  * @return WP_REST_Response|WP_Error
  */
@@ -30,7 +37,7 @@ function ai_rest_get_last_order(WP_REST_Request $request) {
         );
     }
 
-    $order = ai_find_last_order_by_phone($phone, $request->get_param('exclude'));
+    $order = ai_find_last_order_by_phone($phone);
 
     if (!$order instanceof WC_Order) {
         // 200, not 404. "This customer is new" is a normal answer to a
@@ -56,14 +63,6 @@ add_action('rest_api_init', function () {
                 'type'              => 'string',
                 'required'          => true,
                 'sanitize_callback' => 'ai_rest_sanitize_text',
-            ],
-            'exclude' => [
-                'type'              => 'integer',
-                'sanitize_callback' => 'ai_rest_sanitize_absint',
-                // Clamp rather than reject, as everywhere else in this
-                // namespace: a non-numeric value becomes 0, which means
-                // "exclude nothing".
-                'validate_callback' => 'ai_rest_validate_any',
             ],
         ],
     ]);

@@ -248,10 +248,41 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, signal }) {
    * number re-shows it from memory instead of asking the server again.
    * Backspacing through a number therefore costs no requests at all.
    *
-   * Invalidated whenever the order id changes, because `exclude` is part of the
-   * question being asked - see applyServerOrder().
+   * Invalidated whenever the order id changes, because that changes whether the
+   * cached order is the one on screen - see applyServerOrder().
    */
   let lookupCache = { phone: '', order: null }
+
+  /**
+   * Show the looked-up order, or nothing.
+   *
+   * The card always reflects the GENUINE most recent order for the number in
+   * the field - the endpoint has no exclude parameter and returns no
+   * substitutes. The one case it must not show is that order being the one
+   * already open on screen, which tells the user nothing they cannot see. That
+   * is a display decision, made here, rather than a filter pushed into the
+   * query where it would turn into "show the second-most-recent order" and
+   * quietly mislead.
+   *
+   * It covers the reassignment case for free: change the phone to another
+   * customer's number while editing and their real last order appears, because
+   * its id is not this order's.
+   *
+   * @param {object|null} order
+   */
+  function renderLookup(order) {
+    if (!order) {
+      lastOrder.hide()
+      return
+    }
+
+    if (state.orderId !== null && Number(order.id) === Number(state.orderId)) {
+      lastOrder.hide()
+      return
+    }
+
+    lastOrder.show(order)
+  }
 
   /**
    * Look up this phone number's previous order.
@@ -273,8 +304,7 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, signal }) {
     // Unchanged number: render what it resolved to last time, no request. This
     // is what keeps deleting and retyping silent.
     if (phone === lookupCache.phone) {
-      if (lookupCache.order) lastOrder.show(lookupCache.order)
-      else lastOrder.hide()
+      renderLookup(lookupCache.order)
       return
     }
 
@@ -282,15 +312,7 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, signal }) {
     lookupPending = new AbortController()
 
     try {
-      const result = await fetchLastOrder(
-        {
-          phone,
-          // While editing, the order on screen IS this customer's most recent
-          // one, and showing it to itself would be absurd.
-          exclude: state.orderId ?? undefined,
-        },
-        lookupPending.signal,
-      )
+      const result = await fetchLastOrder({ phone }, lookupPending.signal)
 
       // found: false is the common case and shows nothing at all. A "new
       // customer" message would be noise on most orders. It is cached too, so
@@ -300,8 +322,7 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, signal }) {
         order: result?.found && result.order ? result.order : null,
       }
 
-      if (lookupCache.order) lastOrder.show(lookupCache.order)
-      else lastOrder.hide()
+      renderLookup(lookupCache.order)
     } catch (error) {
       if (error?.name === 'AbortError') return
       if (error?.status === 401) return
@@ -1185,9 +1206,10 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, signal }) {
     title.textContent = order.number ? `Order #${order.number}` : 'Order'
     pasteBox.open = false
 
-    // The loaded order's own phone may have a previous order behind it, and
-    // the exclude id has only just become known - which changes the question,
-    // so any cached answer is for a different one. Drop it and re-ask.
+    // The loaded order's own phone may have a previous order behind it, and the
+    // order id has only just become known - which decides whether a cached
+    // answer should be SHOWN, since the card is suppressed when the last order
+    // is the one on screen. Drop the cache and re-ask.
     lookupCache = { phone: '', order: null }
     lastOrder.hide()
     runLookup.cancel()

@@ -2,6 +2,15 @@
 
 All notable changes to AI Order Creator are documented in this file.
 
+## 6.8
+
+- **Removed the `exclude` parameter from `GET /customers/last-order`.** It was added in 6.7 so the app could ask for "this customer's last order other than the one I'm editing" — and that is the wrong question. The answer to it is the **second-most-recent** order presented as if it were the last one: editing order 11354 showed 11323, which is not that customer's last order. Misleading rather than merely unhelpful.
+  - The endpoint now answers exactly one question — *what is the most recent order for this phone number* — and never returns a substitute.
+  - `ai_find_last_order_by_phone()` loses its `$exclude_order_id` argument with it, along with the limit-of-two and the defensive re-check that existed only to serve it. The AJAX caller never passed it.
+  - **Whether the answer is worth displaying is the client's decision**, and the app now makes it: the card is hidden when the returned order's id equals the order being edited. Pushing that into the query is what turned it into "show the second-most-recent order".
+  - This keeps the useful case working for free: change the phone on an existing order to another customer's number and their real last order appears, because its id is not this order's. That is the reassignment case, and it is the one time the card earns its space while editing.
+  - No dead parameters are left in the API.
+
 ## 6.7
 
 - **Added `GET /aioc/v1/customers/last-order`**, the repeat-customer lookup the legacy admin tool has always had. That one is bound to a session and a nonce, so the app could not use it.

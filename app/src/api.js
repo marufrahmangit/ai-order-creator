@@ -340,18 +340,19 @@ export function fetchProducts({ search, limit, fields = 'picker' } = {}, signal)
 }
 
 /**
- * GET /customers/last-order - this phone number's previous order.
+ * GET /customers/last-order - this phone number's most recent order.
  *
  * Returns { found: false } with status 200 when the customer is new: that is a
  * normal answer, not an error, so it is not a 404 and must not be treated as
  * one. When found, `order` is the SAME shape GET /orders/{id} returns, because
  * the endpoint reuses that builder.
  *
- * `exclude` leaves one order out, which the form needs while editing - without
- * it the lookup finds the order already open on screen.
+ * Always the genuine most recent order, never a substitute. There is no
+ * `exclude` parameter: whether the answer is worth SHOWING - it may be the
+ * order already open on screen - is a display decision the caller makes.
  */
-export function fetchLastOrder({ phone, exclude } = {}, signal) {
-  return request('/customers/last-order', { params: { phone, exclude }, signal })
+export function fetchLastOrder({ phone } = {}, signal) {
+  return request('/customers/last-order', { params: { phone }, signal })
 }
 
 /** GET /ping - auth and CORS smoke test. */
