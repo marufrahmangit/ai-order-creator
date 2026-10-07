@@ -71,13 +71,22 @@ button {
   width: 100%;
 }
 
+/* Defaults to a colour readable on a LIGHT surface. It used to be #fff, which
+   was right for the only place it existed at the time - the dark app header -
+   and silently invisible everywhere else. The last-order card hit exactly that:
+   white text on a near-white card. Dark backgrounds now opt in below. */
 .button.link {
   border: 0;
   background: none;
-  color: #fff;
+  color: var(--accent);
   padding: 0 4px;
   text-decoration: underline;
   min-height: auto;
+}
+
+/* The dark header is the exception, and says so. */
+.app-header .button.link {
+  color: #fff;
 }
 
 /* ---------- Login ---------- */
@@ -986,15 +995,33 @@ body.has-pwa-banner .fab {
 .last-order-actions {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
-.last-order-open,
-.last-order-reorder {
+/* A link: the order number, which navigates. */
+.last-order-open {
   padding: 0;
   font-weight: 600;
-  /* Comfortably tappable without pushing the card's header taller. */
   min-height: 32px;
+}
+
+/* A BUTTON, and it has to look like one. Reorder rewrites the form's items and
+   fees, so it must not read as status-coloured text or as another link - it
+   carries the same border and surface as every other action button in the app. */
+.last-order-reorder {
+  padding: 0 12px;
+  min-height: 36px;
+  font-weight: 600;
+  text-decoration: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.last-order-reorder:active {
+  background: #f3f4f6;
 }
 
 .last-order-meta {

@@ -79,7 +79,7 @@ export function LastOrderCard({ onOpenOrder, onReorder }) {
           // THIS order rather than on the form.
           el('button', {
             type: 'button',
-            class: 'button link last-order-reorder',
+            class: 'button last-order-reorder',
             text: 'Reorder',
             'aria-label': `Copy order ${order.number} into this form`,
             onClick: () => onReorder(order),

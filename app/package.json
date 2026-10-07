@@ -1,6 +1,6 @@
 {
   "name": "order-ops-app",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "description": "Mobile-first PWA for WooCommerce order ops. Talks to the aioc/v1 REST namespace served by the Order Ops plugin.",
@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node test/api-abort.test.mjs && node test/picker-logic.test.mjs && node test/sw-routing.test.mjs && node test/phone-parity.test.mjs && node test/view-smoke.test.mjs && node test/last-order-lookup.test.mjs && node test/reorder.test.mjs"
+    "test": "node test/api-abort.test.mjs && node test/picker-logic.test.mjs && node test/sw-routing.test.mjs && node test/phone-parity.test.mjs && node test/contrast.test.mjs && node test/view-smoke.test.mjs && node test/last-order-lookup.test.mjs && node test/reorder.test.mjs"
   },
   "devDependencies": {
     "vite": "^7.0.0"

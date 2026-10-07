@@ -197,6 +197,10 @@ parser becomes one feature inside it, not the whole tool.
   - `test/last-order-lookup.test.mjs` — captures the URLs the order form REQUESTS and
     what it then shows, so the lookup's query string and its display rule are both
     asserted rather than inferred from the code that builds them.
+  - `test/contrast.test.mjs` — computes WCAG contrast for the text/background pairs the
+    app actually puts together, reading the real stylesheet so a colour changed there is
+    checked without anyone remembering to. It also asserts structurally that no
+    `.badge-*` rule can select outside the badge.
   - `test/reorder.test.mjs` — asserts Reorder through the SAVE PAYLOAD: that items, fees
     and the note are copied, that the old status is not, that shipping and identity are
     not sent, that a typed name survives, and that the first tap on a form with items
@@ -262,6 +266,13 @@ parser becomes one feature inside it, not the whole tool.
   the repeat-customer card was added to a section that was being built in the middle of
   the declarations. An array literal evaluates immediately; `const` does not hoist a
   value. Keep assembly at the bottom.
+- **A colour that only works on one background is a bug waiting for its second
+  caller.** `.button.link` was `color: #fff` - correct for the dark app header, the only
+  place it existed - and became invisible the moment the last-order card reused it on a
+  near-white surface: white on `#fbfcfd` is **1.03:1**. The default is now readable on a
+  light surface and the dark header opts in with `.app-header .button.link`. Contrast
+  pairs are asserted by number in `app/test/contrast.test.mjs`, because the only thing
+  that catches this otherwise is looking, and looking is what had already been done.
 - The app builds nodes and sets `textContent`; it never assembles HTML from data.
   Order data is staff-pasted free text, so string-built markup would be an injection
   risk. `dom.js` has no `html` option by design.
