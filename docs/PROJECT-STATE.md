@@ -2,7 +2,7 @@
 
 Working brief for resuming this project cold. Present state only — git log is the history.
 
-Plugin header: **Order Ops v6.7**, Updated 2026-10-07. Live runs **v4.9**. Staging runs
+Plugin header: **Order Ops v6.7**, Updated 2026-10-07. Live runs **6.6**. Staging runs
 **6.6**, against which **all seven build steps are built AND verified** — the API layer
 end to end, and the app confirmed in a browser as an installed standalone PWA. **6.7
 (`GET /customers/last-order` plus the app's repeat-customer card) is committed but NOT
@@ -25,9 +25,11 @@ the app has been used end to end in a browser as an installed PWA.
 3. Stand up `ops.cartmixbd.com`, `npm run build`, upload `app/dist/`.
 4. Change `ai_app_origin` to `https://ops.cartmixbd.com`. This breaks local development
    until changed back — it holds one origin.
-5. Confirm `POST /token` with **Defender active**, which is the last untested
-   assumption before live.
-6. Decide about live, which still runs plugin 4.9 and has no `aioc/v1` routes.
+5. Decide whether the app points at live. Live already runs the 6.x plugin, so the
+   routes are there — but **live's REST layer has never been exercised at all**, and
+   `ai_app_origin` is expected to be empty there, which means no browser can reach it.
+   Confirm that before assuming either way: empty is the safe state, and it is also
+   what would make a first attempt from the app fail with no CORS headers.
 
 **Testing the production build: `npm run preview` serves on port 4173, not 5173**, so
 `ai_app_origin` will not match and every request fails CORS. Use
@@ -40,11 +42,14 @@ looks like anything but CORS.
 - `ops.cartmixbd.com` is **not stood up**. The app is served from `npm run dev`.
 - `ai_app_origin` on staging is `http://localhost:5173` and **must change at deploy**.
   It holds one origin, so flipping it breaks local development until flipped back.
-- **Live still runs plugin 4.9** and has no `aioc/v1` routes at all.
-- **Defender truncates application passwords** in wp-admin. `POST /token` is believed
-  to sidestep it, since it reads the plaintext from the create call rather than the
-  admin screen, but that is reasoned and not tested — confirm with Defender ACTIVE
-  before the app reaches live.
+- **Live runs the 6.x plugin (6.6), so the `aioc/v1` routes exist there** — but
+  **nothing on live has ever been called**. Every verification in this document was
+  against staging.
+- **`ai_app_origin` is expected to be EMPTY on live**, which means
+  `ai_rest_cors_headers()` grants nothing and no browser can reach the API. That is the
+  safe default and the reason the app cannot accidentally talk to live today. Worth
+  confirming rather than assuming, because an empty setting is also indistinguishable
+  from a misconfigured one until something tries.
 - `app/dist/` must be rebuilt before any deploy; `VITE_API_BASE` is baked in at build
   time.
 
@@ -61,8 +66,12 @@ parser becomes one feature inside it, not the whole tool.
 
 ## Environment
 
-- Live: cartmixbd.com — plugin stays at v4.9, untouched by this work
-- Staging: staging.cartmixbd.com — carries all 5.x work, test here only
+- Live: cartmixbd.com — **plugin 6.6**, upgraded when the parser fixes were deployed.
+  Both live and staging now run the 6.x plugin, so the `aioc/v1` routes exist on both.
+  **Live's REST layer has never been exercised**, though: every verification recorded
+  here was done against staging. `ai_app_origin` is expected to be empty on live, so no
+  browser can reach the API there.
+- Staging: staging.cartmixbd.com — where everything is tested first
 - WooCommerce 11.0.1, HPOS enabled, table prefix `wp_`, hosted cPanel/MySQL
 - Products are post status `private`; the storefront is unused, orders are taken
   internally. Product queries must include publish AND private.
@@ -74,16 +83,11 @@ parser becomes one feature inside it, not the whole tool.
   creating a variable product. The rules above still govern that code if any appear.
 - Auth: WP core Application Passwords (Basic auth), user `t45km45ter`. Staff never
   handle one directly - `POST /token` mints it. See Product decisions.
-- The Defender plugin truncates the application-password display in wp-admin,
-  producing unusable credentials. Currently deactivated on staging. **`POST /token`
-  (6.1) is what sidesteps this**: the defect is in wp-admin's *display* of a new
-  password, and `/token` reads the plaintext from
-  `WP_Application_Passwords::create_new_application_password()`'s return value, so no
-  admin screen is involved and truncation cannot reach the credential. Defender is
-  therefore no longer expected to block the app's login path - but that is reasoned,
-  not tested. Confirm `/token` works with Defender ACTIVE before live, since it also
-  hooks `authenticate` and the `wp_login_failed` action that `wp_authenticate()`
-  fires.
+- **Defender is deactivated and stays that way — settled, not pending.** It truncated
+  the application-password display in wp-admin, producing unusable credentials, which is
+  why it was turned off. Recorded here so nobody re-enables it without knowing what
+  broke. (`POST /token` reads the plaintext from the create call rather than from any
+  admin screen, so it would not be affected by that particular defect either way.)
 - Custom order statuses live in a **Code Snippets** snippet that hooks
   `wc_order_statuses`, not in this plugin. **If custom statuses stop appearing in
   `/meta` after a snippet edit, re-save the snippet or clear Code Snippets' cache before
@@ -646,8 +650,9 @@ the code below:
   returned a full 24-character application password, the canonical `user_login`, a
   timestamped `name` and a `uuid` — and that minted credential then authenticated
   successfully against `/ping`. So the whole premise holds: core Basic auth accepts the
-  application password `/token` mints, staff never touch one directly, and the
-  Defender display truncation is genuinely bypassed.
+  application password `/token` mints, and staff never touch one directly. (This used to
+  claim the Defender truncation was "genuinely bypassed" too. That was reasoned rather
+  than tested, and is moot now Defender stays off.)
 - Two findings that constrain the app rather than the API, both now recorded under
   Product decisions: some state labels carry **trailing whitespace**, and `/meta`
   includes **`checkout-draft`**.
