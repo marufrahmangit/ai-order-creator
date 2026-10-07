@@ -12,11 +12,13 @@
  *     There is no required-field checking anywhere in here.
  *   - The server is authoritative on shipping and totals. Shipping is a pure
  *     function of the billing state, computed server-side with no manual
- *     override, so this form displays it and never calculates it.
+ *     override, so this form displays it and never calculates it. Before the
+ *     first save it previews the rate by LOOKING IT UP in /meta's table, which
+ *     is the same table the server applies - still not a calculation here.
  */
 
 import { fetchOrder, parseText, createOrder, updateOrder, trashOrder, fetchLastOrder } from '../api.js'
-import { districts, orderStatuses } from '../meta.js'
+import { districts, orderStatuses, shippingRateFor } from '../meta.js'
 import { formatMoney, formatAmount } from '../format.js'
 import { el, clear, debounce } from '../dom.js'
 import { ProductPicker } from './product-picker.js'
@@ -85,7 +87,11 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, reorderFrom, sign
      */
     feesDirty: false,
     /**
-     * Display only. Never computed here - see the note at the top.
+     * The SERVER'S shipping line, and only that. A null cost means the order
+     * has none - which is the normal state before the first save, and is what
+     * makes renderTotals() fall back to previewing the district's rate.
+     * Nothing but applyServerOrder() may write to it, or "has the server told
+     * us?" stops being answerable.
      *
      * Deliberately NOT the shipping line's id: ai_apply_shipping() clears and
      * re-adds the line on every save, so any id held here would be stale the
@@ -154,8 +160,9 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, reorderFrom, sign
   // `label` is display only and is trimmed because some WooCommerce BD labels
   // carry trailing whitespace. Nothing here ever compares a label string.
   const districtSelect = el('select', { id: 'of-district' }, [
-    // No state is a valid order - shipping falls back to the Outside Dhaka
-    // rate - so the empty option is a real choice, not a prompt.
+    // No district is a valid order, so the empty option is a real choice, not
+    // a prompt. It does NOT mean the Outside Dhaka rate: ai_apply_shipping()
+    // returns early on an empty billing state and adds no shipping line at all.
     el('option', { value: '', text: '— No district —' }),
     ...districts().map((district) => el('option', { value: district.code, text: district.label })),
   ])
@@ -205,8 +212,8 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, reorderFrom, sign
     const eventName = control.tagName === 'SELECT' ? 'change' : 'input'
     control.addEventListener(eventName, () => {
       state.dirty.add(key)
-      // Changing the district changes the shipping rate, but only the server
-      // computes that, so the totals need to say so rather than go stale.
+      // The district decides the shipping rate, so the totals have to follow
+      // it live - on an unsaved order the figure shown IS the district's rate.
       if (key === 'state') renderTotals()
     })
   }
@@ -958,28 +965,59 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, reorderFrom, sign
       totalsNode.append(totalsRow('Fees', formatMoney(feesTotal)))
     }
 
-    // Shipping is the server's to decide. Blank until it has told us.
+    /*
+     * Shipping. The server owns it, and on a saved order what it actually
+     * charged is what shows.
+     *
+     * Before the first save there is no server line, and a dash there used to
+     * leave the Order total short by the shipping amount - the figure staff
+     * read out to the customer. So the rate the server WOULD apply is shown
+     * instead, looked up by district in /meta's table. Nothing is computed
+     * here: the rate is the plugin's, fetched, not restated.
+     *
+     * shippingRateFor() returns null for NO district, because the server adds
+     * no line in that case either. Showing the default there would overstate
+     * every unsaved order with a blank district.
+     */
+    const preview = state.shipping.cost === null
+      ? shippingRateFor(districtSelect.value)
+      : null
+    const shippingCost = state.shipping.cost ?? preview?.cost ?? null
+    const shippingLabel = state.shipping.cost !== null
+      ? (state.shipping.label || 'Shipping')
+      : (preview?.label || 'Shipping')
+
     totalsNode.append(totalsRow(
-      state.shipping.label || 'Shipping',
-      state.shipping.cost === null ? '—' : formatMoney(state.shipping.cost),
+      shippingLabel,
+      shippingCost === null ? '—' : formatMoney(shippingCost),
     ))
 
     // While nothing has been edited locally, the server's total is the truth and
     // can legitimately differ from items + shipping - a coupon or a discount
     // applied outside this app. Once there are local edits it cannot be, so the
     // computed figure takes over and the note below says it is provisional.
-    const shippingCost = state.shipping.cost ?? 0
     const clean = state.dirty.size === 0 && !state.itemsDirty && !state.feesDirty
     const orderTotal = (clean && state.serverTotal !== null)
       ? state.serverTotal
-      : subtotal + feesTotal + shippingCost
+      : subtotal + feesTotal + (shippingCost ?? 0)
 
     totalsNode.append(totalsRow('Order total', formatMoney(orderTotal), 'totals-total'))
 
     // Anything that makes the figures above provisional is said plainly rather
     // than left for the staff member to spot after saving.
     const reasons = []
-    if (state.dirty.has('state')) reasons.push('the district changed, so shipping recalculates')
+    /*
+     * Worded for the case actually on screen. It used to say "the district
+     * changed, so shipping recalculates" on a brand-new order, where nothing
+     * had changed and there was no previous district to change from.
+     */
+    if (state.orderId !== null && state.dirty.has('state')) {
+      reasons.push('the district changed, so shipping is recalculated')
+    } else if (state.shipping.cost === null && shippingCost !== null) {
+      reasons.push('shipping is the flat rate for the district and is applied on save')
+    } else if (state.shipping.cost === null && districtSelect.value === '') {
+      reasons.push('no district is selected, so no shipping is added')
+    }
     if (unknown > 0) reasons.push('unpriced items are priced')
     if (state.itemsDirty && state.orderId !== null) reasons.push('items were edited and are re-priced from the catalogue')
     // WooCommerce caps a negative fee at the order's own value so the total
@@ -1239,16 +1277,16 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, reorderFrom, sign
       districtHint.hidden = false
     }
 
-    // A preview from the pure rate table, so staff see the cost before saving.
-    // Still the server's figure, not one computed here.
-    const preview = toNumber(result?.shipping_preview?.cost)
-    if (preview !== null) {
-      state.shipping = {
-        cost: preview,
-        label: result?.shipping_preview?.label || 'Shipping',
-      }
-    }
-
+    /*
+     * POST /parse also returns a shipping_preview, and it is deliberately NOT
+     * used. It comes from the same rate table, so for a district that resolved
+     * it is the same number - but when the parser could NOT resolve one it is
+     * the Outside Dhaka default, while the dropdown above is still empty and a
+     * save would add no shipping at all. Previewing from the district the user
+     * can actually see keeps one answer on screen instead of two.
+     *
+     * state.shipping stays untouched: it means the server's saved line.
+     */
     state.warnings = Array.isArray(result?.warnings) ? result.warnings : []
     renderWarnings()
     renderTotals()

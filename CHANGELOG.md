@@ -2,6 +2,31 @@
 
 All notable changes to AI Order Creator are documented in this file.
 
+## 6.9
+
+- **Added `shipping_rates` to `GET /meta`,** so the app can show the expected shipping on an order that has not been saved yet.
+  - The bug it fixes: a new order with a district selected showed a dash for shipping and an **Order total short by 80–150 BDT**. That total is read out to a customer on the phone. The district fully determines the rate, so there was nothing uncertain to withhold.
+  - Shape: `{default: {cost, label}, by_state: {"BD-13": {cost, label}, …}}`. Costs are raw numeric strings at 2dp through the existing `ai_rest_money()`, like every other money field in this API. `by_state` is an object, not a list, because the client looks a code up directly.
+  - **Derived, never restated.** `ai_get_shipping_rate()` used to hide the table inside a `switch`. The table is now `ai_get_shipping_rates()`, returning it as data, and `ai_get_shipping_rate()` reads from that. Its contract is unchanged — same `int` costs, same labels, same Outside Dhaka default for an unmatched code — confirmed by running it against `BD-13`, `BD-18`, `BD-01`, `''` and a nonsense code.
+  - One source of truth, in both directions: a rate edited in `includes/orders/shipping.php` reaches the app through `/meta` with **no app rebuild**. The plugin still has to be uploaded.
+- **These rates are not WooCommerce shipping.** *WooCommerce → Settings → Shipping* is never consulted by this plugin — no zones, no methods, no instances. `ai_apply_shipping()` writes a `flat_rate` line from this table directly. Worth stating in the API because `/meta` otherwise contains only things read from WooCommerce at request time, and `shipping_rates` is the one exception.
+- **An asymmetry now documented at both ends, because it is easy to get backwards.** `ai_get_shipping_rate('')` returns the Outside Dhaka default — but `ai_apply_shipping()` never asks it for an empty state. It returns early and adds **no shipping line at all**.
+  - So `default` is the rate for a district that is **set but unrecognized**, not for an order without one.
+  - A client that showed `150.00` for a blank district would overstate every unsaved order with no district picked — the same class of bug as the dash, in the other direction. The app shows nothing there, matching what a save actually does.
+- Corrected a stale comment in `parse.php`. It claimed that endpoint's `shipping_preview` was "the correct preview" for an unresolved district. It is the default rate, which is not what a save would apply. The app now previews from the district its own dropdown is showing, so there is one answer on screen rather than two.
+
+### App 0.4.0
+
+- **The Totals block now shows the expected shipping before the first save**, read from `/meta`'s table by the district currently selected, and included in the Order total. It updates live as the district changes — whether the district was set by Reorder, by Parse, or by hand.
+  - **Nothing is computed in the app.** The rate is looked up, not derived, and no rate literal appears in `app/src/`; a test asserts that, because a second copy would be a second source of truth and the one that disagreed with the plugin is the one staff would read out.
+  - **A saved order still shows the server's actual shipping line**, even where that differs from the table — someone may have adjusted it in wp-admin. `state.shipping` now means *the server's line and only that*, which is what makes "has the server told us?" answerable; `applyServerOrder()` is the only writer.
+  - **No district selected shows nothing, not the default rate.** That matches `ai_apply_shipping()`, which adds no line at all for an empty billing state.
+  - `POST /parse`'s own `shipping_preview` is deliberately no longer used for display. For a district that resolved it is the same figure; for one that did not it is the default rate while the dropdown is still empty — two answers on screen, one of them wrong.
+- **Fixed the note under the totals.** On a brand-new order it read "the district changed, so shipping recalculates" — nothing had changed, and there was no previous district to change from. The wording now follows the case actually showing: a changed district on a *saved* order, a flat rate applied on save, or no district selected and therefore no shipping.
+- `/meta` is cached in `sessionStorage` under a versioned key, so a session that cached the payload before `shipping_rates` existed refetches instead of serving a preview-less copy to exactly the people who just upgraded. An older plugin that serves no table degrades to the dash rather than inventing a figure.
+- Reorder still does not copy shipping, and that is now load-bearing rather than incidental: the rate follows from the district, so copying the source order's line would be wrong the moment a rate changed or the district was edited after the reorder.
+
+
 ## 6.8
 
 - **Removed the `exclude` parameter from `GET /customers/last-order`.** It was added in 6.7 so the app could ask for "this customer's last order other than the one I'm editing" — and that is the wrong question. The answer to it is the **second-most-recent** order presented as if it were the last one: editing order 11354 showed 11323, which is not that customer's last order. Misleading rather than merely unhelpful.

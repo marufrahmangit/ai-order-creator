@@ -1,9 +1,10 @@
 /**
  * Reorder copies a previous order into the form for review.
  *
- * It does NOT create an order - the staff member still taps Save. (A Clone
- * action that creates one outright is a separate operation; nothing here
- * should be reused for it without deciding that deliberately.)
+ * It does NOT create an order - the staff member still taps Save. Reorder is
+ * the only duplication concept in the app; an action that created an order
+ * outright was considered and deliberately not built, so there is no second
+ * behaviour for any of this to be confused with.
  *
  * Most assertions read the SAVE PAYLOAD rather than internal state, because
  * that is what the dirty-marking exists for: line_items and fee_lines are
@@ -62,6 +63,15 @@ globalThis.fetch = async (url, options = {}) => {
       states: [{ code: 'BD-13', label: 'Dhaka' }, { code: 'BD-18', label: 'Gazipur ' }],
       statuses: [{ slug: 'pending', label: 'Pending payment' }, { slug: 'completed', label: 'Completed' }],
       currency: 'BDT', price_decimals: 2, plugin_version: '6.8',
+      // The real /meta carries this from 6.9 on. Present here so these suites
+      // exercise the same payload the app actually receives.
+      shipping_rates: {
+        default: { cost: '150.00', label: 'Outside Dhaka Flat Rate' },
+        by_state: {
+          'BD-13': { cost: '80.00', label: 'Dhaka Flat Rate' },
+          'BD-18': { cost: '120.00', label: 'Gazipur Flat Rate' },
+        },
+      },
     }
   }
   else if (u.includes('/last-order')) payload = lookupAnswer

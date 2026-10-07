@@ -2,20 +2,45 @@
 if (!defined('ABSPATH')) exit;
 
 /**
- * Single source of truth for the flat shipping rates.
+ * THE shipping rate table. The only one.
+ *
+ * These rates have nothing to do with WooCommerce's shipping zones or methods -
+ * WooCommerce > Settings > Shipping is never consulted. ai_apply_shipping()
+ * writes a flat_rate line from this table directly.
+ *
+ * Returned as a structure rather than hidden in a switch so that it can be
+ * READ as data - GET /meta serves it to the app, which previews the cost before
+ * an order is saved. A second copy anywhere, in PHP or JS, would be a second
+ * source of truth, and the one that disagreed would be the one staff read out.
+ *
+ * @return array{default:array{cost:int,label:string},by_state:array<string,array{cost:int,label:string}>}
+ */
+function ai_get_shipping_rates() {
+    return [
+        'default'  => ['cost' => 150, 'label' => 'Outside Dhaka Flat Rate'],
+        'by_state' => [
+            'BD-13' => ['cost' => 80,  'label' => 'Dhaka Flat Rate'],
+            'BD-18' => ['cost' => 120, 'label' => 'Gazipur Flat Rate'],
+        ],
+    ];
+}
+
+/**
+ * The rate for one state code, defaulting to Outside Dhaka.
+ *
+ * Note what this does NOT decide: whether a shipping line is added at all.
+ * An EMPTY state code returns the default here, but ai_apply_shipping() never
+ * asks - it returns early and adds no line. So the default applies to a state
+ * that is set but unrecognized, not to an order with no district.
  *
  * @param string $state_code WooCommerce state code (e.g. 'BD-13').
  * @return array{cost:int,label:string}
  */
 function ai_get_shipping_rate($state_code) {
-    switch ((string) $state_code) {
-        case 'BD-13':
-            return ['cost' => 80, 'label' => 'Dhaka Flat Rate'];
-        case 'BD-18':
-            return ['cost' => 120, 'label' => 'Gazipur Flat Rate'];
-        default:
-            return ['cost' => 150, 'label' => 'Outside Dhaka Flat Rate'];
-    }
+    $rates = ai_get_shipping_rates();
+    $code  = (string) $state_code;
+
+    return isset($rates['by_state'][$code]) ? $rates['by_state'][$code] : $rates['default'];
 }
 
 /**

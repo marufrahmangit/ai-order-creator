@@ -2,36 +2,66 @@
 
 Working brief for resuming this project cold. Present state only — git log is the history.
 
-Plugin header: **Order Ops v6.8**, Updated 2026-10-08. Live runs **6.6**. Staging runs
-**6.6**, against which **all seven build steps are built AND verified** — the API layer
-end to end, and the app confirmed in a browser as an installed standalone PWA. **6.8
-(`GET /customers/last-order` plus the app's repeat-customer card) is committed but NOT
-uploaded.** 6.7 introduced that endpoint and 6.8 corrects it, so 6.7 was never deployed
-and only 6.8 matters.
+Plugin header: **Order Ops v6.9**, Updated 2026-10-07. App **0.4.0**. Live runs **6.6**.
+Staging runs **6.6**, against which **build steps 1-7 are built AND verified** — the API
+layer end to end, and the app confirmed in a browser as an installed standalone PWA.
+
+**Staging is three plugin versions behind the repo.** 6.7, 6.8 and 6.9 are committed and
+none has been uploaded. They collapse into one upload: 6.7 added
+`GET /customers/last-order`, 6.8 corrected it by removing a parameter, and 6.9 added
+`shipping_rates` to `/meta`. **Only 6.9 needs to go up** — 6.7 was never deployed, so its
+mistake never reached a server.
+
+**Steps 8, 9 and 10 came after the original seven-step plan** and are the only work not
+yet exercised against staging or a browser. See Build steps.
 
 **What remains before this is usable in production is operational, not code.** See the
 list below.
 
 ## Start here
 
-**All seven build steps are built and verified.** There is no feature work queued, and
-the app has been used end to end in a browser as an installed PWA.
+**Read this section, then the Build steps table, then Unverified / open. Those three
+say what exists, what is proven, and what is merely written down.**
 
-**The next work is deployment, and it is operational.** In order:
+**There is no feature work queued.** Everything in the Build steps table is built and
+passes its checks locally. Two of those checks are in the repo and one is not:
 
-1. Upload plugin **6.8** and confirm `/ping` reports it.
-2. Verify 6.8: `GET /customers/last-order` for a repeat customer, a new customer
-   (`{found: false}`, 200) and a bad phone (400). Then the app's card: editing an order
-   whose phone is unchanged shows NO card, and changing that phone to another customer's
-   number shows their last order.
-3. Stand up `ops.cartmixbd.com`, `npm run build`, upload `app/dist/`.
-4. Change `ai_app_origin` to `https://ops.cartmixbd.com`. This breaks local development
-   until changed back — it holds one origin.
-5. Decide whether the app points at live. Live already runs the 6.x plugin, so the
-   routes are there — but **live's REST layer has never been exercised at all**, and
+- **`npm test` in `app/`** — nine suites, 206 assertions. In the repo. Run this first.
+- **`php -l` over all 27 PHP files** — needs the portable PHP described under
+  Conventions, which is not in the repo either but takes one download to set up.
+- **A contract check** that greps the real PHP and JS source and asserts every field
+  name and behavioural rule they must agree on — 188 assertions at 6.9. **This is a
+  scratch tool, rebuilt per session, and is NOT in the repo.** Do not go looking for it.
+  It is mentioned because the counts quoted in this document came from it, and because
+  rebuilding it is cheap and has caught real drift; but `npm test` is the durable check.
+
+None of them needs a server.
+
+**The next work is deployment and verification, and it is operational, not code.** In
+order, because each step depends on the one before:
+
+1. Upload plugin **6.9** and confirm `GET /aioc/v1/ping` reports `6.9`. A stale version
+   here causes misleading 404s on new routes, so do not skip the check.
+2. Verify **6.9**: `GET /meta` now carries `shipping_rates` with `default` 150.00 and
+   `by_state` holding BD-13 at 80.00 and BD-18 at 120.00, as numeric strings at 2dp.
+3. Verify **6.8**'s endpoint: `GET /customers/last-order` for a repeat customer, a new
+   customer (200 `{found: false}`), and a bad phone (400 `aioc_invalid_phone`). Also
+   confirm the legacy AJAX admin tool still works, since the lookup was extracted out
+   from under it in 6.7.
+4. Verify the app against staging from `npm run dev`, with `ai_app_origin` still
+   `http://localhost:5173`. Nothing in steps 8, 9 or 10 has been seen in a browser:
+   the repeat-customer card, Reorder from both entry points, and the shipping figure on
+   an unsaved order. The specifics worth checking are listed under Unverified / open.
+5. Stand up `ops.cartmixbd.com`, then `npm run build` in `app/` and upload `app/dist/`.
+6. Change `ai_app_origin` to `https://ops.cartmixbd.com`. **This breaks local development
+   until changed back** — it holds one origin, not a list.
+7. Decide whether the app points at live. Live already runs the 6.x plugin, so the routes
+   are there — but **live's REST layer has never been exercised at all**, and
    `ai_app_origin` is expected to be empty there, which means no browser can reach it.
-   Confirm that before assuming either way: empty is the safe state, and it is also
-   what would make a first attempt from the app fail with no CORS headers.
+   Confirm that before assuming either way: empty is the safe state, and it is also what
+   would make a first attempt from the app fail with no CORS headers.
+
+Steps 1-4 can be done today against staging. Steps 5-7 need the subdomain.
 
 **Two traps when testing the production build on localhost, both of which have already
 cost a debugging round:**
@@ -99,10 +129,19 @@ parser becomes one feature inside it, not the whole tool.
   why it was turned off. Recorded here so nobody re-enables it without knowing what
   broke. (`POST /token` reads the plaintext from the create call rather than from any
   admin screen, so it would not be affected by that particular defect either way.)
-- Custom order statuses live in a **Code Snippets** snippet that hooks
-  `wc_order_statuses`, not in this plugin. **If custom statuses stop appearing in
-  `/meta` after a snippet edit, re-save the snippet or clear Code Snippets' cache before
-  suspecting this repo** — that is what fixed it once already. Its active-snippets cache
+- **Code Snippets is a second place code runs on these sites, and it has already been
+  load-bearing twice.** Two things to know:
+  - Custom order statuses live in a Code Snippets snippet that hooks `wc_order_statuses`,
+    not in this plugin.
+  - **The shipping rates used to live there too.** They were folded into this plugin in
+    4.9 and then DELETED from Code Snippets, so that only one table exists. **If shipping
+    or custom statuses ever behave oddly, check Code Snippets on BOTH sites for a
+    resurrected copy** — two tables both hooking the same thing means whichever runs last
+    wins, and the symptom is a rate or a status that is right in one place and wrong in
+    another.
+  - **If custom statuses stop appearing in `/meta` after a snippet edit, re-save the
+    snippet or clear Code Snippets' cache before suspecting this repo** — that is what
+    fixed it once already. Its active-snippets cache
   is keyed per scope group, so a stale entry can leave the snippet running in wp-admin
   while a REST request sees the unfiltered list. Our side holds no status cache at all:
   `meta.php`, `orders.php` and `orders-write.php` each call `wc_get_order_statuses()`
@@ -175,10 +214,11 @@ parser becomes one feature inside it, not the whole tool.
     requiring it without `ABSPATH` defined exits silently with status 0.
   - The Groq path still cannot be exercised locally: it needs network and a key. Only
     the deterministic pipeline is reachable, which is where the parsing logic lives.
-- App tests: `npm test` in `app/`. No dependencies, no browser, six files. Four read the
-  real source and lift part of it, so they cannot drift from the code silently; two run a
-  view against a crude DOM shim, which is the only thing in this project that executes
-  one at all.
+- App tests: `npm test` in `app/`. No dependencies, no browser, **nine files, 206
+  assertions**. Some read the real source and lift part of it, so they cannot drift from
+  the code silently; the rest run a view against a crude DOM shim, which is the only
+  thing in this project that executes one at all. A new suite must be added to the
+  `test` script in `app/package.json` or it never runs.
   - `test/api-abort.test.mjs` — runs the real `src/api.js` against a throwaway localhost
     server, pinning the abort-versus-real-failure contract the order list depends on.
   - `test/picker-logic.test.mjs` — lifts the pure half of `views/product-picker.js` and
@@ -212,7 +252,22 @@ parser becomes one feature inside it, not the whole tool.
     - Note it loads `/meta` first, as every real screen does behind `withMeta()`.
       Without that the district copy is correctly skipped, because no district is on
       offer, and the test would quietly be asserting the wrong thing.
+  - `test/shipping-preview.test.mjs` — asserts the shipping figure in the form's Totals
+    block in all four states: a saved order shows the SERVER's line even where that
+    differs from the rate table, an unsaved order shows the selected district's rate and
+    updates live as it changes, a district that is set but unlisted gets the default, and
+    NO district shows a dash rather than the default. It also asserts that no rate
+    literal appears anywhere in `app/src/`, and that the wording under the totals matches
+    the case showing. Worth its own file because the Order total is read aloud to a
+    customer, and both failure directions — a dash, or the default applied to a blank
+    district — are wrong money rather than a cosmetic defect.
+    - It compares the AMOUNT out of each formatted figure, not the whole string.
+      `formatMoney()` goes through `Intl` and which glyph BDT renders as depends on the
+      runtime's ICU data — Node gives `BDT 80.00` where a browser gives `৳80.00`. An
+      assertion on the full string tests ICU, not the rate.
   - The DOM shim and module loader the view tests share live in `test/dom-shim.mjs`.
+    A new module under `src/` must be listed in its `VIEW_MODULES` or the view suites
+    fail to resolve it.
 - **`app/src/phone.js` is the one piece of logic deliberately duplicated between PHP and
   JS**, and it exists only to decide whether a half-typed number is worth a last-order
   request. The server re-normalizes and answers 400 if it disagrees, so the client copy
@@ -296,10 +351,64 @@ parser becomes one feature inside it, not the whole tool.
   lesson: when a design question about order editing feels genuinely hard, check whether
   WooCommerce's own screen already answers it — the hard question is usually a sign that
   something has been collapsed or renamed.**
-- Shipping is a pure function of billing state: BD-13 → 80 Dhaka Flat Rate,
-  BD-18 → 120 Gazipur Flat Rate, all else → 150 Outside Dhaka Flat Rate. One rate
-  table in `includes/orders/shipping.php`, called from the admin hooks and every REST
-  write path. Auto-only; no manual override by design.
+- **Shipping is a pure function of billing state**: BD-13 → 80 Dhaka Flat Rate,
+  BD-18 → 120 Gazipur Flat Rate, all else → 150 Outside Dhaka Flat Rate. Auto-only; no
+  manual override by design.
+  - **This is NOT WooCommerce shipping.** *WooCommerce → Settings → Shipping* is not
+    consulted by this plugin at all — no zones, no methods, no instances, nothing read
+    from them. The rates live in `includes/orders/shipping.php` and `ai_apply_shipping()`
+    writes a `flat_rate` line from them directly. Anyone debugging a wrong shipping
+    figure by looking at WooCommerce's shipping settings is looking in a place this code
+    never reads.
+  - **The rates originated as a Code Snippets snippet.** They were folded into the plugin
+    in 4.9 and then deleted from Code Snippets, so only one table exists. **Check both
+    sites for a resurrected copy if shipping ever behaves oddly** — two tables hooking
+    the same thing means whichever runs last wins.
+  - **One table, two shapes.** `ai_get_shipping_rates()` returns it as data;
+    `ai_get_shipping_rate($state_code)` reads one rate out of it. `/meta` serves the
+    whole table to the app. Nothing anywhere restates a rate, and
+    `app/test/shipping-preview.test.mjs` asserts no rate literal exists in `app/src/`.
+  - **Changing a rate is a code edit plus a plugin upload.** The app then picks the new
+    rate up from `/meta` with **no app rebuild and no re-deploy of `app/dist/`** — but
+    the plugin still has to be uploaded, and a stale plugin means a stale rate in both
+    the app and the saved order, consistently.
+  - **Considered and NOT done: moving the rates into a WordPress option with a settings
+    field**, the way `ai_app_origin` already works. That would make a rate change an
+    admin setting with no upload at all. Not built, because the rates have changed once
+    in the life of this project and an option adds a settings UI, a migration from the
+    hardcoded values, and a second place a rate can come from. **Recorded as available
+    if rates start changing often** — the structure `ai_get_shipping_rates()` returns is
+    already the shape an option would store.
+  - **One asymmetry, which is easy to get backwards.** `ai_get_shipping_rate('')`
+    returns the Outside Dhaka default — but `ai_apply_shipping()` never asks it for an
+    empty state. It logs and returns early, adding **no shipping line at all**. So the
+    default is the rate for a district that is **set but unrecognized**, not for an order
+    with no district. Anything previewing a rate must show nothing for a blank district,
+    or it overstates every such order.
+- **The form shows the expected shipping before the first save, by LOOKING IT UP, not by
+  computing it.** An unsaved order used to show a dash for shipping and an Order total
+  short by 80-150 BDT, and that total is read out to a customer on the phone. The
+  district fully determines the rate, so there was nothing uncertain to withhold.
+  - The figure comes from `/meta`'s `shipping_rates`, keyed by whatever the district
+    select currently holds, and updates live as it changes — whether the district was set
+    by Reorder, by Parse, or by hand. **Still not a calculation in the app**: the rate is
+    the plugin's, fetched.
+  - **A saved order always shows the server's actual shipping line**, even where that
+    differs from the table, because someone may have adjusted it in wp-admin. The server
+    stays authoritative; the preview only fills the gap before the first save.
+  - `state.shipping` in `order-form.js` means **the server's line and only that**, and
+    `applyServerOrder()` is its only writer. That is what keeps "has the server told us?"
+    answerable, which is the question the whole fallback turns on.
+  - **`POST /parse`'s own `shipping_preview` is deliberately not displayed.** For a
+    district that resolved it is the same figure from the same table; for one that did
+    NOT resolve it is the default rate while the dropdown is still empty — so it would
+    put a figure on screen that a save would not apply. Previewing from the district the
+    user can actually see keeps one answer visible instead of two.
+  - `/meta` is cached in `sessionStorage` under a **versioned key**. A session that
+    cached the payload before `shipping_rates` existed would otherwise keep serving a
+    preview-less copy to exactly the people who just upgraded. A plugin older than 6.9
+    serves no table at all, and the form degrades to the dash rather than inventing a
+    figure.
 - All WooCommerce statuses are settable from the app, read from
   `wc_get_order_statuses()` rather than hardcoded.
 - **The last-order lookup caches its RESULT per number, not just the number.** Deleting
@@ -333,11 +442,16 @@ parser becomes one feature inside it, not the whole tool.
     a LIST ROW there is one, because the list endpoint returns summaries with no line
     items — hence the row button's loading state.
   - **NOT copied: status** (a new order starts at the form's default, not wherever the
-    old one ended up), **shipping** (the server recalculates it from the district), and
-    **the id, number and date** (this is a new order, not that one).
-  - Name and address are filled **only when empty**. Someone may be correcting the
-    customer's details, and overwriting what they just typed would be worse than leaving
-    a field blank.
+    old one ended up), and **the id, number and date** (this is a new order, not that
+    one).
+  - **Shipping is deliberately NOT copied, and this is load-bearing rather than
+    incidental.** It follows from the district, which IS copied. Copying the source
+    order's shipping line would be wrong the moment a rate changed, and wrong again the
+    moment someone edited the district after the reorder — in both cases showing a figure
+    the save would not apply. The district is copied; the rate is looked up from it.
+  - The copied fields are filled **only when empty** — name, phone, address and
+    district. Someone may be correcting the customer's details, and overwriting what they
+    just typed would be worse than leaving a field blank.
   - Items and fees are marked **dirty** on copy. Both lists are all-or-nothing on
     update, so without that the payload omits them and the copy looks right on screen
     while saving nothing. `app/test/reorder.test.mjs` asserts this through the save
@@ -518,9 +632,10 @@ parser becomes one feature inside it, not the whole tool.
   `product_id`; shipping keeps only its cost and label.
 - **The API reports no order-level subtotal** — only per-line `subtotal`/`total` and the
   order `total` — so the form sums the line totals itself for the "Items" figure. It
-  does not compute shipping or invent an order total: while nothing has been edited
-  locally it shows the server's `total`, which can legitimately differ from items plus
-  shipping because of a coupon or a discount.
+  never invents an order total: while nothing has been edited locally it shows the
+  server's `total`, which can legitimately differ from items plus shipping because of a
+  coupon or a discount. It does not compute shipping either; before the first save it
+  looks the district's rate up in `/meta`, which is not the same thing.
 - **Field-level validation mirrors WooCommerce, not stricter.** WooCommerce permits
   saving an order with no phone, no address, no line items and no state — details can be
   filled in later. The app must permit the same. Do NOT add required-field validation to
@@ -530,8 +645,8 @@ parser becomes one feature inside it, not the whole tool.
   succeeds with a name and no phone, returning empty strings for unextracted fields
   (verified on staging at 5.8).
 - `POST /parse` returns data and creates nothing. Always parse → review → save; never
-  blind-create. Implemented in 5.8; it also returns a `shipping_preview` from the pure
-  rate table so staff see the cost before saving.
+  blind-create. Implemented in 5.8. It also returns a `shipping_preview` from the pure
+  rate table, which the app no longer displays — see the shipping entry above for why.
 - **Leading list markers are stripped as line PREFIXES only, in two classes.** A marker
   sits between the start of a line and its field label, which silently defeats the
   `(?:^|\n)\s*label` anchors the extractors rely on — so a bulleted message loses its
@@ -663,13 +778,18 @@ parser becomes one feature inside it, not the whole tool.
 | 6a | Order form — fields, paste-and-parse, line items, totals, save, trash | done, **verified in a browser** | — |
 | 6b | Product picker — sheet over the form, cached search | done, **verified in a browser** | — |
 | 6c | Trash view and restore | done, **verified in a browser** | 6.6 |
-
-**All seven steps are built and verified**, the app included. Row 8 is not a build step
-from the original plan - it is the repeat-customer lookup added afterwards, and the only
-thing in this table not yet on staging.
 | 7 | Manifest, service worker, install prompt | done, **verified as an installed PWA** | — |
 | 8 | Repeat-customer last-order lookup | done, **not yet on staging** | 6.8 |
 | 9 | Reorder — from the last-order card and from each list row | done, **unverified in a browser** | app 0.3.0 |
+| 10 | Expected shipping on an unsaved order | done, **not yet on staging, unverified in a browser** | 6.9 / app 0.4.0 |
+
+**Steps 1-7 are the original plan, and all seven are built and verified** — the API layer
+by real requests against staging, the app in a browser as an installed PWA.
+
+**Rows 8, 9 and 10 came afterwards and are the unverified edge of this project.** 8 and
+10 need a plugin upload before they can be exercised at all; 9 is app-only and needs
+only a browser. Everything in them passes locally — `php -l`, the contract check, nine
+app suites — which is evidence that the code is coherent, not that it works.
 
 **The API layer is complete and signed off.** Step 3 at 5.6/5.7 with 3d/3e verified at
 6.2/6.3, step 4a at 5.8, 4b at 5.9, 4c and 4d at 6.1 — every endpoint confirmed by real
@@ -697,7 +817,16 @@ because it defaults to `$override = false`:
   `search` is required, 3-character minimum on the whole term. `limit` defaults to 20
   and clamps to 50. `fields=picker` trims the row; anything else gives the full nine
   fields. The envelope carries `products` and `timing_ms`.
-- `GET  /aioc/v1/meta` — `includes/rest/routes/meta.php` (states, statuses, currency)
+- `GET  /aioc/v1/meta` — `includes/rest/routes/meta.php`. States, statuses, currency,
+  `price_decimals`, `plugin_version`, and `shipping_rates` as
+  `{default: {cost, label}, by_state: {"BD-13": {cost, label}, …}}`. Everything except
+  `shipping_rates` is read from WooCommerce per request; that one comes from this
+  plugin's own rate table.
+- `GET  /aioc/v1/customers/last-order?phone=` — `includes/rest/routes/customers.php`.
+  `phone` is required; 400 `aioc_invalid_phone` if it is not a recognizable BD mobile,
+  200 `{found: false}` for a customer with no previous order, otherwise the standard
+  order shape from the same builder `GET /orders/{id}` uses. No `exclude` parameter —
+  6.8 removed it deliberately.
 - `POST /aioc/v1/token` — `includes/rest/routes/token.php`. **The only unauthenticated
   route.** Username + password in, a newly minted application password out (201).
   Generic 401 on any bad credential, 403 for a valid login lacking `manage_woocommerce`,
@@ -875,7 +1004,8 @@ standalone PWA.** This closes the whole app-side unknown:
   WooCommerce does, fees including the sign toggle), **the trash view and restore**, and
   **the twelve-status dropdown** all work.
 
-So all seven build steps are built AND verified. What remains is operational.
+So all seven of the ORIGINAL build steps are built and verified. Steps 8, 9 and 10 came
+afterwards and are not covered by anything in this section — see Unverified / open.
 
 Step 7 (installability) — what was checkable without a browser, which is further than it
 sounds but was not the same thing:
@@ -966,8 +1096,19 @@ parses clean under `php -l`, which had never been checked before.
   missed; and variation-level SKUs are findable only by exact match via
   `wc_get_product_id_by_sku()`, the parent-first search never reaching a partial one.
   Parent/simple SKU partial matching IS verified.
-- **Nothing in 6.8 has run.** `GET /customers/last-order` and the app's
-  repeat-customer card are unexercised. Verify on staging: a repeat customer returns the
+- **Nothing in 6.7, 6.8 or 6.9 has run on a server.** Staging is on 6.6. Uploading 6.9
+  covers all three.
+- **Nothing in 6.9 has run.** `GET /meta` has never been called with `shipping_rates` in
+  it, and the app's shipping preview has never been seen in a browser. Verify: that
+  `/meta` returns the table with costs as 2dp numeric strings; that a new order with
+  BD-13 selected shows 80.00 in the Totals block and an Order total including it; that
+  changing the district updates the figure without a reload; that a district outside the
+  table shows 150.00; that clearing the district back to none shows a dash rather than
+  150.00; and that a SAVED order whose shipping was adjusted in wp-admin still shows the
+  adjusted figure rather than the table's. Also worth one check that the figure the app
+  previewed matches what the order actually carries after saving — same table, so it
+  should, but that is the whole claim.
+- **`GET /customers/last-order` and the app's repeat-customer card are unexercised.** Verify on staging: a repeat customer returns the
   previous order in the standard shape; a new customer returns 200 `{found: false}` and
   the app shows nothing; a malformed phone returns 400 `aioc_invalid_phone`; editing an
   order whose phone is unchanged shows NO card while changing that phone to another
@@ -1023,22 +1164,12 @@ parses clean under `php -l`, which had never been checked before.
   That is WooCommerce's behaviour, not this plugin's, and the app deliberately does not
   try to detect or warn about it — the re-render after saving simply shows the figure
   the server kept. Recorded so it is not rediscovered as a bug.
-- **Step 6a has never run in a browser.** It builds (22.6 kB of JS), every module
-  resolves, and a 58-assertion contract check confirms every field name the form reads
-  or sends matches what the PHP emits and accepts — but no request has been made. Unseen
-  end to end: paste-and-parse populating the fields, the district and status selects
-  against real `/meta` data, loading an existing order, the quantity stepper, partial
-  update actually leaving untouched fields alone, create, and trash. Also unverified:
-  that an edited line total round-trips — type a figure, save, and confirm the returned
-  order carries it rather than the catalogue price — and that an overridden line
-  survives a quantity change. Fees likewise: adding a fee and a discount, confirming
-  the Fees row and the total, that removing every fee and saving actually clears them,
-  and that editing a product does not disturb the fees in the round trip. Verify against
-  staging with `ai_app_origin` at `http://localhost:5173`.
-- **Restore is not reachable from the app.** Trashed orders are excluded from
-  `GET /orders`, so there is no route to a trashed order and nowhere to put a restore
-  action. `POST /orders/{id}/restore` exists and is verified; the app simply cannot
-  reach it. Restoring means wp-admin until the list grows a trash filter.
+- **Fee round-trips have not been checked end to end**, though the form and both
+  endpoints are built and the rest of step 6a is verified in a browser. Unconfirmed:
+  that removing every fee and saving actually clears them server-side, and that editing a
+  product does not disturb the fees in the same round trip. The two lists are
+  independently scoped in the code and the contract check asserts the payload semantics,
+  so this is a verification gap rather than a suspected defect.
 - **`GET /orders?search=` does not resolve order ids.** It handles phone and customer
   name only. A numeric term that is not a valid BD mobile falls through to the name
   search, so typing an order number returns unrelated name matches rather than that
@@ -1083,9 +1214,36 @@ parses clean under `php -l`, which had never been checked before.
   — deliberately, so signing in on a phone does not sign out a laptop. Expect a growing
   list under the `Order Ops (app)` prefix in the user profile, and prune it by hand
   until a revoke route exists.
-- Claude Code's environment has no php binary and no WooCommerce source, so nothing is
-  linted or run there. Local checks are structural or simulated only; behaviour must be
-  confirmed by curl against staging, as was done for steps 3a and 3b.
+- **What CAN and cannot be checked without a server.** A portable PHP in the scratchpad
+  makes `php -l` over all 27 files real, and lets the deterministic parser and the rate
+  table actually execute (see Conventions for how to set it up). What is still
+  unreachable locally: WooCommerce itself, so anything touching `wc_get_orders()`,
+  `wc_get_products()`, `WC_Order` or `wc_get_order_statuses()` is structural or simulated
+  only, and the Groq path, which needs network and a key. Behaviour against WooCommerce
+  must be confirmed by curl against staging, as was done for steps 3a and 3b.
+- **Recorded here but NOT verifiable from this repo.** Everything below is written down
+  because it was observed once; none of it can be re-checked by reading the code, so
+  treat it as a claim with a date on it rather than a fact:
+  - **Which plugin version each site runs** (live 6.6, staging 6.6). Only
+    `GET /aioc/v1/ping` can answer this. Check it before trusting any other statement
+    about the servers.
+  - **`ai_app_origin`'s value on either site** — `http://localhost:5173` on staging,
+    expected empty on live. Both are settings in wp-admin. The live one in particular is
+    an expectation, not an observation: nobody has looked.
+  - **That Defender is deactivated**, and that it was what truncated the
+    application-password display.
+  - **That the custom-status snippet exists in Code Snippets and is active**, and that
+    the shipping snippet was deleted from it in 4.9. The deletion especially: the
+    plugin's copy of the table is in the repo, but nothing in the repo can show whether
+    a snippet was removed from a site.
+  - **That staging's trash still holds the step 4b test orders.**
+  - **WooCommerce's internal behaviours** quoted throughout — `sanitize_status()` passing
+    unknown statuses through, `calculate_totals()` capping a negative fee, HPOS storing
+    trash unprefixed, `add_product()` appending rather than merging. These were read from
+    the WooCommerce 11.0 source, which is not vendored here, so they are version-specific
+    and will not be re-checked by any local test.
+  - **The 4505 orders / 1502 pages scale figures**, and every timing in milliseconds.
+    Staging data, at one moment.
 
 ## Housekeeping
 

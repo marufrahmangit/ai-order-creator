@@ -66,7 +66,11 @@ function ai_rest_parse_text(WP_REST_Request $request) {
 
     // An unmatched state is not an error - the client's district dropdown
     // handles it. ai_get_shipping_rate('') yields the Outside Dhaka default,
-    // which is the correct preview for that case.
+    // but note that is the rate for an unrecognized district, NOT what a saved
+    // order with no district gets: ai_apply_shipping() adds no line at all in
+    // that case. The app previews shipping from the district the dropdown ends
+    // up showing, via /meta's shipping_rates, so it does not rely on this
+    // figure when no district resolved.
     $rate = ai_get_shipping_rate($state_code);
 
     return new WP_REST_Response([

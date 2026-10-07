@@ -6,11 +6,22 @@
  * relabelled upstream or a status registered by another plugin propagates with
  * no app rebuild. Nothing in it changes during normal operation, so it is
  * fetched once and reused, not re-requested per screen.
+ *
+ * shipping_rates is the plugin's own flat rate table rather than anything
+ * WooCommerce knows about. It is here so the form can show the expected
+ * shipping on an order that has not been saved yet; the rates are NOT
+ * duplicated in this app, and a rate edited in the plugin reaches the app with
+ * no rebuild.
  */
 
 import { fetchMeta } from './api.js'
 
-const STORAGE_KEY = 'orderops.meta'
+/*
+ * Versioned. A session that cached /meta before shipping_rates existed would
+ * otherwise keep serving a payload without it, and the shipping preview would
+ * stay blank until the tab was closed - for exactly the people who upgraded.
+ */
+const STORAGE_KEY = 'orderops.meta.v2'
 
 /**
  * WooCommerce's internal abandoned-cart status. /meta returning it is correct -
@@ -44,6 +55,26 @@ function writeStored(meta) {
   }
 }
 
+/** One {cost, label} entry, or null if it is not usable. */
+function normalizeRate(raw) {
+  const cost = Number(raw?.cost)
+  if (!Number.isFinite(cost)) return null
+  return { cost, label: String(raw?.label ?? '') || 'Shipping' }
+}
+
+function normalizeRates(raw) {
+  const fallback = normalizeRate(raw?.default)
+  if (!fallback) return null
+
+  const byState = {}
+  for (const [code, rate] of Object.entries(raw?.by_state || {})) {
+    const parsed = normalizeRate(rate)
+    if (parsed) byState[code] = parsed
+  }
+
+  return { default: fallback, byState }
+}
+
 function normalize(raw) {
   return {
     // Order is WooCommerce's own and is preserved - it is a list, not a map,
@@ -52,6 +83,9 @@ function normalize(raw) {
     statuses: Array.isArray(raw?.statuses) ? raw.statuses : [],
     currency: typeof raw?.currency === 'string' && raw.currency ? raw.currency : 'BDT',
     priceDecimals: Number.isInteger(raw?.price_decimals) ? raw.price_decimals : 2,
+    // Absent on a plugin older than 6.9. Left null rather than defaulted, so
+    // the form shows no preview instead of a figure this app invented.
+    shippingRates: normalizeRates(raw?.shipping_rates),
     pluginVersion: typeof raw?.plugin_version === 'string' ? raw.plugin_version : '',
   }
 }
@@ -128,6 +162,28 @@ export function orderStatuses() {
       slug: status.slug,
       label: String(status.label ?? '').trim(),
     }))
+}
+
+/**
+ * The shipping rate the SERVER would apply for a district, or null if it would
+ * apply none.
+ *
+ * Null for an empty district is not a shortcut: ai_apply_shipping() returns
+ * early when the billing state is empty and adds no shipping line, so the
+ * default rate would be a figure no saved order ever has. The default is for a
+ * district that is set but not in the table.
+ *
+ * @param {string} code A WooCommerce BD state code, or '' for none.
+ * @returns {{cost: number, label: string}|null}
+ */
+export function shippingRateFor(code) {
+  const rates = cached?.shippingRates
+  if (!rates) return null
+
+  const state = String(code ?? '').trim()
+  if (state === '') return null
+
+  return rates.byState[state] || rates.default
 }
 
 /** Display label for a status slug, falling back to the slug itself. */
