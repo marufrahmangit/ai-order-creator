@@ -186,6 +186,9 @@ function showOrderForm(orderId) {
   withMeta(() => mount(OrderFormView({
     orderId: orderId ?? null,
     onClose: showOrders,
+    // The repeat-customer card can open the previous order, which is the same
+    // navigation the list uses.
+    onOpenOrder: showOrderForm,
     signal,
   })))
 }

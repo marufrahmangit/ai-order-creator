@@ -16,18 +16,15 @@ function ai_ajax_lookup_last_order() {
         wp_send_json_error('Invalid phone number');
     }
 
-    $orders = wc_get_orders([
-        'limit'         => 1,
-        'orderby'       => 'date',
-        'order'         => 'DESC',
-        'billing_phone' => $phone,
-    ]);
+    // The lookup lives in includes/orders/lookup.php, shared with
+    // GET /aioc/v1/customers/last-order. Only the response formatting below is
+    // specific to this handler - it feeds the old admin UI, which expects
+    // wc_price() HTML, and is deliberately left as it is.
+    $order = ai_find_last_order_by_phone($phone);
 
-    if (empty($orders)) {
+    if (!$order instanceof WC_Order) {
         wp_send_json_success(['found' => false]);
     }
-
-    $order = $orders[0];
     $currency = $order->get_currency();
     $decode   = function ($html) {
         return trim(html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8'));

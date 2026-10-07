@@ -15,14 +15,19 @@
  *     override, so this form displays it and never calculates it.
  */
 
-import { fetchOrder, parseText, createOrder, updateOrder, trashOrder } from '../api.js'
+import { fetchOrder, parseText, createOrder, updateOrder, trashOrder, fetchLastOrder } from '../api.js'
 import { districts, orderStatuses } from '../meta.js'
 import { formatMoney, formatAmount } from '../format.js'
-import { el, clear } from '../dom.js'
+import { el, clear, debounce } from '../dom.js'
 import { ProductPicker } from './product-picker.js'
+import { LastOrderCard } from './last-order.js'
+import { normalizeBdPhone } from '../phone.js'
 
 /** Every field whose dirty state is tracked, in payload-key form. */
 const FIELDS = ['name', 'phone', 'address_1', 'state', 'status', 'customer_note']
+
+/** Long enough that typing a number does not fire a request per digit. */
+const LOOKUP_DEBOUNCE_MS = 400
 
 /** A numeric string from the API, or null when it is absent or unparseable. */
 function toNumber(value) {
@@ -49,9 +54,14 @@ function parseTypedAmount(text) {
 }
 
 /**
- * @param {{ orderId: number|null, onClose: () => void, signal?: AbortSignal }} options
+ * @param {{
+ *   orderId: number|null,
+ *   onClose: () => void,
+ *   onOpenOrder: (id: number) => void,
+ *   signal?: AbortSignal,
+ * }} options
  */
-export function OrderFormView({ orderId, onClose, signal }) {
+export function OrderFormView({ orderId, onClose, onOpenOrder, signal }) {
   const state = {
     orderId: orderId ?? null,
     /** Fields the user has actually changed. Drives the partial update. */
@@ -171,6 +181,7 @@ export function OrderFormView({ orderId, onClose, signal }) {
   const fieldsSection = el('section', { class: 'form-section' }, [
     field('Customer name', nameInput),
     field('Phone', phoneInput),
+    lastOrder.node,
     field('Address', addressInput),
     el('div', { class: 'field' }, [
       el('label', { for: 'of-district', text: 'District' }),
@@ -211,6 +222,100 @@ export function OrderFormView({ orderId, onClose, signal }) {
       if (key === 'state') renderTotals()
     })
   }
+
+  // --------------------------------------------------- repeat-customer lookup
+
+  /** Anything the user has changed but not saved. */
+  function isDirty() {
+    return state.dirty.size > 0 || state.itemsDirty || state.feesDirty
+  }
+
+  /** The order id a second tap would open, once the first tap warned. */
+  let openConfirmFor = null
+
+  /**
+   * Opening the previous order navigates away, which discards whatever is in
+   * this form. Worth one confirmation rather than losing a half-typed order to
+   * a mistap - the same two-step the trash action uses, through the status line
+   * rather than a second confirm UI.
+   */
+  function requestOpenOrder(id) {
+    if (!isDirty() || openConfirmFor === id) {
+      onOpenOrder(id)
+      return
+    }
+
+    openConfirmFor = id
+    setMessage('Unsaved changes here. Tap Open again to discard them and open that order.', 'error')
+  }
+
+  const lastOrder = LastOrderCard({ onOpenOrder: requestOpenOrder })
+
+  /** The in-flight lookup, aborted before each new one. */
+  let lookupPending = null
+
+  /** The number the visible card belongs to, so an unchanged number is not refetched. */
+  let lookupShownFor = ''
+
+  /**
+   * Look up this phone number's previous order.
+   *
+   * Fires only for a number that normalizes to a valid BD mobile, so a partial
+   * number costs nothing. The gate is app/src/phone.js, a mirror of the
+   * server's normalizer - the server re-checks and 400s if it disagrees.
+   */
+  async function lookupLastOrder() {
+    const phone = normalizeBdPhone(phoneInput.value)
+
+    if (phone === '') {
+      lookupPending?.abort()
+      lookupShownFor = ''
+      lastOrder.hide()
+      return
+    }
+
+    if (phone === lookupShownFor) return
+
+    lookupPending?.abort()
+    lookupPending = new AbortController()
+
+    try {
+      const result = await fetchLastOrder(
+        {
+          phone,
+          // While editing, the order on screen IS this customer's most recent
+          // one, and showing it to itself would be absurd.
+          exclude: state.orderId ?? undefined,
+        },
+        lookupPending.signal,
+      )
+
+      lookupShownFor = phone
+
+      // found: false is the common case and shows nothing at all. A "new
+      // customer" message would be noise on most orders.
+      if (result?.found && result.order) {
+        lastOrder.show(result.order)
+      } else {
+        lastOrder.hide()
+      }
+    } catch (error) {
+      if (error?.name === 'AbortError') return
+      if (error?.status === 401) return
+      // A failed lookup is not worth a message: it is an extra, and the form
+      // works without it. Leaving the card hidden is the honest outcome.
+      lastOrder.hide()
+    }
+  }
+
+  const runLookup = debounce(lookupLastOrder, LOOKUP_DEBOUNCE_MS)
+
+  phoneInput.addEventListener('input', runLookup)
+  phoneInput.addEventListener('blur', () => {
+    // Blur should not wait out the debounce - the number is finished.
+    runLookup.cancel()
+    lookupLastOrder()
+  })
 
   // ---------------------------------------------------------------- items
 
@@ -975,6 +1080,10 @@ export function OrderFormView({ orderId, onClose, signal }) {
 
     assign('name', nameInput, parsed.name)
     assign('phone', phoneInput, parsed.phone)
+    // Parsing fills the phone programmatically, which fires no input event -
+    // so the lookup has to be asked for explicitly.
+    runLookup.cancel()
+    lookupLastOrder()
     assign('address_1', addressInput, parsed.address_1)
     assign('customer_note', noteInput, parsed.customer_note)
 
@@ -1072,6 +1181,14 @@ export function OrderFormView({ orderId, onClose, signal }) {
 
     title.textContent = order.number ? `Order #${order.number}` : 'Order'
     pasteBox.open = false
+
+    // The loaded order's own phone may have a previous order behind it, and
+    // the exclude id has only just become known, so re-run rather than
+    // trusting whatever the card held.
+    lookupShownFor = ''
+    lastOrder.hide()
+    runLookup.cancel()
+    lookupLastOrder()
 
     renderItems()
     renderFees()

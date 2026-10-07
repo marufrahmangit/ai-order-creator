@@ -939,3 +939,91 @@ button {
 body.has-pwa-banner .fab {
   bottom: calc(88px + env(safe-area-inset-bottom));
 }
+
+/* ---------- Repeat-customer card ---------- */
+
+.last-order {
+  margin: -8px 0 16px;
+}
+
+.last-order-details {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fbfcfd;
+}
+
+/* Collapsed by default: the form is already taller than a phone screen, and an
+   unrelated order's line items above the fields would push them away. */
+.last-order-summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--tap);
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.last-order-summary-text {
+  overflow-wrap: anywhere;
+}
+
+.last-order-detail {
+  padding: 0 12px 12px;
+  border-top: 1px solid var(--line);
+}
+
+.last-order-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 10px;
+}
+
+.last-order-open {
+  padding: 0;
+  font-weight: 600;
+}
+
+.last-order-meta {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--ink-muted);
+  overflow-wrap: anywhere;
+}
+
+.last-order-lines {
+  margin-top: 10px;
+}
+
+.last-order-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+  font-size: 13px;
+}
+
+.last-order-line-label {
+  color: var(--ink-muted);
+  overflow-wrap: anywhere;
+}
+
+.last-order-line-value {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.last-order-total {
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  font-weight: 700;
+}
+
+.last-order-total .last-order-line-label {
+  color: var(--ink);
+}

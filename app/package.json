@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node test/api-abort.test.mjs && node test/picker-logic.test.mjs && node test/sw-routing.test.mjs"
+    "test": "node test/api-abort.test.mjs && node test/picker-logic.test.mjs && node test/sw-routing.test.mjs && node test/phone-parity.test.mjs"
   },
   "devDependencies": {
     "vite": "^7.0.0"

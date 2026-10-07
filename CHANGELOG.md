@@ -2,6 +2,19 @@
 
 All notable changes to AI Order Creator are documented in this file.
 
+## 6.7
+
+- **Added `GET /aioc/v1/customers/last-order`**, the repeat-customer lookup the legacy admin tool has always had. That one is bound to a session and a nonce, so the app could not use it.
+  - `phone` is required and normalized through the existing `ai_normalize_bd_phone()`. Anything that is not a recognizable BD mobile is a 400 `aioc_invalid_phone`.
+  - Optional `exclude` leaves one order out. The app needs it while editing an order — without it the lookup finds the order already open on screen.
+  - **A customer with no previous order returns 200 with `{ "found": false }`, not a 404.** "This customer is new" is a normal answer to a reasonable question, not a failure, and the app shows nothing at all in that case — so an error status would make it handle a non-error as one.
+  - A found order comes back through `ai_rest_prepare_order_detail()`, the **same** builder `GET /orders/{id}` uses. There is no second order shape in this API, and the client already knows how to read it — `line_items`, `shipping_lines`, `fee_lines` and all.
+- **Extracted the shared lookup.** `ai_find_last_order_by_phone()` now lives in a new `includes/orders/lookup.php` and is called by both the AJAX handler and the REST route. `includes/ajax.php` keeps its own response formatting untouched — it feeds the old admin UI, which expects `wc_price()` HTML — but the lookup no longer exists twice.
+  - **Trashed orders are excluded by passing no `status` at all.** WooCommerce treats an absent status as every valid status except those flagged `exclude_from_search`, which is exactly `trash` and `checkout-draft`. That is deliberately *not* the explicit `array_keys(wc_get_order_statuses())` list `GET /orders` passes: that list includes `wc-checkout-draft`, so using it here would start surfacing abandoned carts as somebody's last order.
+  - The `exclude` id is both passed to the query and re-checked in PHP — the same defence in depth `ai_rest_price_match_product_ids()` applies to its price argument. If the query arg is ever ignored, the caller still never sees the order it asked to skip.
+  - `includes/ajax.php` was **already** using `ai_normalize_bd_phone()` from the 5.2 refactor, so there was no inline normalization left to remove.
+- App side: the order form looks up the previous order when the phone field holds a valid BD mobile — on blur, and debounced at 400ms while typing, with the in-flight request cancelled on each new one. It renders a collapsible card below the phone field, collapsed to a one-line summary by default so it cannot push the form off a phone screen, expanding to the order's items, shipping, fees and total. Tapping through to that order asks first if the current form has unsaved changes.
+
 ## 6.6
 
 - **`GET /orders` now accepts `status=trash`**, so the app can offer a trash view. Both `trash` and `wc-trash` are accepted at the boundary and normalized to the bare `trash` for the query.
