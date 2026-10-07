@@ -178,20 +178,6 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, signal }) {
 
   const districtHint = el('p', { class: 'field-hint', hidden: true })
 
-  const fieldsSection = el('section', { class: 'form-section' }, [
-    field('Customer name', nameInput),
-    field('Phone', phoneInput),
-    lastOrder.node,
-    field('Address', addressInput),
-    el('div', { class: 'field' }, [
-      el('label', { for: 'of-district', text: 'District' }),
-      districtSelect,
-      districtHint,
-    ]),
-    field('Status', statusSelect),
-    field('Customer note', noteInput),
-  ])
-
   /** Current field values, keyed exactly as the write endpoints expect. */
   function readFields() {
     return {
@@ -1218,6 +1204,33 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, signal }) {
   }
 
   // ---------------------------------------------------------------- assemble
+
+  // ------------------------------------------------------------------ layout
+  //
+  // Everything below here is ASSEMBLY, and it comes last on purpose. The order
+  // this view needs is: field controls, then the controllers that wire them up,
+  // then the layout that arranges both.
+  //
+  // fieldsSection used to be built up with the field controls, in the middle of
+  // the declarations - and when the repeat-customer card was added to it in 6.7
+  // it reached forward for `lastOrder`, a const declared seventy lines further
+  // down. An array literal is evaluated immediately, so that was a temporal
+  // dead zone ReferenceError on every open of the form, new or existing. The
+  // fix is not to hoist the declaration: it is that layout has no business
+  // running before the things it lays out exist. Keep assembly here.
+  const fieldsSection = el('section', { class: 'form-section' }, [
+    field('Customer name', nameInput),
+    field('Phone', phoneInput),
+    lastOrder.node,
+    field('Address', addressInput),
+    el('div', { class: 'field' }, [
+      el('label', { for: 'of-district', text: 'District' }),
+      districtSelect,
+      districtHint,
+    ]),
+    field('Status', statusSelect),
+    field('Customer note', noteInput),
+  ])
 
   const view = el('div', { class: 'order-form' }, [
     el('header', { class: 'app-header' }, [
