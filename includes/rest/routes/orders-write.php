@@ -317,15 +317,14 @@ function ai_rest_finalize_order(WC_Order $order) {
 
     // Applies the flat rate from the single rate table and calls
     // calculate_totals(), which persists. The rate table is never duplicated.
+    //
+    // This is the ONLY call needed. ai_apply_shipping() used to return early on
+    // an empty billing state, so nothing recalculated totals in that case and
+    // this function called calculate_totals() itself as a workaround. 7.0 fixed
+    // the early return instead - the removal and the recalculation now happen
+    // whatever the state is - which makes that workaround redundant. Calling it
+    // again here would be a second write of figures that are already correct.
     ai_apply_shipping($order);
-
-    // ai_apply_shipping() returns early when the billing state is empty, so in
-    // that case nothing has recalculated totals. Without this, an order with
-    // line items but no state would persist with a total of 0 - the same defect
-    // 4.9 fixed for the admin path.
-    if ($order->get_billing_state() === '') {
-        $order->calculate_totals();
-    }
 }
 
 /**

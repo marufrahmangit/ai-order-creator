@@ -2,6 +2,27 @@
 
 All notable changes to AI Order Creator are documented in this file.
 
+## 7.0
+
+- **Fixed: clearing an order's district left the old shipping line on it, and in its total.** Order 11361 on staging carries a 120.00 `Gazipur Flat Rate` line with an empty billing state, and saving again did not clear it. This is a data-correctness bug, not a display one — the stored total was wrong.
+  - **Cause:** `ai_apply_shipping()` returned early on an empty state *before* the removal loop, so a state going from BD-18 to empty kept the BD-18 rate.
+  - **Fix:** the removal is now unconditional and runs first. Only the *adding* of a new line depends on there being a state, and `calculate_totals()` runs on both paths. **No district means no shipping, and that now holds whether the order never had one or had one and lost it.**
+  - **This was the second bug from that one early return.** The first was skipping `calculate_totals()` entirely, which `ai_rest_finalize_order()` worked around by calling it directly. The root cause is fixed rather than worked around again, and **that workaround is removed as redundant** — with the fix in place it would be a second write of figures that are already correct.
+  - **The admin path needed no separate work.** `woocommerce_process_shop_order_meta` and `woocommerce_before_save_order_items` both reach this function through `ai_apply_shipping_to_order_id()`, which has no state branch of its own — so clearing the district in wp-admin had the identical bug and is fixed identically.
+  - Verified by running the real function against a stub order across seven cases: the reported state, several stale lines at once, a new order with no state, one district changed to another, a re-save unchanged, a new order with a district, and an unrecognized district taking the default. Every case ends with the right lines and **exactly one** `calculate_totals()` call, which is what makes the removed second call redundant rather than merely unnecessary.
+  - **Orders already carrying a stale line do not fix themselves.** Each needs one save after this upload. How many exist on staging is not something this repo can answer — see the note under *Unverified / open* in `docs/PROJECT-STATE.md` for the query that would.
+
+### App 0.5.0
+
+- **Fixed: on a saved order, editing the district did not update the displayed shipping.** Selecting "No district" left the stored line showing, and changing one district for another showed the old rate, so the Order total was wrong until after a save. The 6.9 live-update covered unsaved orders only.
+  - The form now records the district the order was **loaded** with. While the select still matches it, the server's stored line wins — a shipping amount adjusted in wp-admin has to survive being looked at. As soon as the select differs, the figure shown is what the save will actually produce: the table rate for the new district, or **nothing** if it was cleared.
+  - This is a different question from `dirty.has('state')`, which stays set once the select has been touched even if it is put back. Changing the district and changing it back makes the stored line accurate again, so it comes back — asserted.
+  - The explanatory line already claimed *"the district changed, so shipping is recalculated"* while showing the old figure. It is now true, and a cleared district says the line is **removed** rather than recalculated, which is what actually happens.
+- **Fixed: the save bar painted over the form's content, reading as a second Save button.** `position: sticky; bottom: 0` keeps its space in the flow at its *original* position, so nothing below it moves and the pinned bar paints straight over whatever is behind it — on a form taller than the viewport, across the middle of the Items section, obscuring a line's price inputs.
+  - Now `position: fixed` with the form reserving room below its content, which is the `.fab` / `.orders-main` pattern already used here. Exactly one bar, always in reach, never on top of anything.
+  - The two `.form-main` padding rules were also consolidated into one. The later one silently overrode the earlier shorthand's `padding-bottom`, 300 lines apart.
+- **New `app/test/save-bar.test.mjs`.** Asserts exactly one save button and one save bar in the DOM for both a new and a loaded order, and both halves of the layout rule — fixed positioning *and* the reserved space — since fixing either alone reintroduces the overlap. Confirmed to fail when the `sticky` rule is put back.
+
 ## 6.9
 
 - **Added `shipping_rates` to `GET /meta`,** so the app can show the expected shipping on an order that has not been saved yet.

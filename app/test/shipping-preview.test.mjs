@@ -267,8 +267,54 @@ const newForm = async () => {
     totalsNote(view).includes('the district changed, so shipping is recalculated'), true)
   check('it does not use the new-order wording',
     totalsNote(view).includes('is applied on save'), false)
-  check("the server's line is still what is shown, since it is still the truth",
+  /*
+   * Once the district is edited the stored line no longer describes what a save
+   * would produce, so the table rate for the NEW district is what shows. This
+   * assertion used to require the opposite - the stale 95.00 - which is exactly
+   * the bug it now guards against.
+   */
+  check('editing the district replaces the stored line with the new rate',
+    shippingRow(view), ['Gazipur Flat Rate', '120.00'])
+  check('and the Order total follows it rather than the stored one',
+    totalOf(view), '620.00')
+
+  // Back to the district it was loaded with: the stored line describes a save
+  // again, so the wp-admin adjustment must come back rather than stay replaced.
+  district.value = 'BD-13'
+  fire(district, 'change')
+  await settle(50)
+  check('putting the district back restores the stored line',
     shippingRow(view), ['Adjusted Flat Rate', '95.00'])
+  check('and the note stops claiming a change',
+    totalsNote(view).includes('the district changed'), false)
+}
+
+// ---- BUG 2: clearing the district on a SAVED order ------------------------
+{
+  requests.length = 0
+  const view = OrderFormView({ orderId: SAVED_ID, onClose: () => {}, onOpenOrder: () => {} })
+  await settle(400)
+
+  check('the stored line shows while the district is untouched',
+    shippingRow(view), ['Adjusted Flat Rate', '95.00'])
+
+  const district = districtOf(view)
+  district.value = ''
+  fire(district, 'change')
+  await settle(50)
+
+  /*
+   * ai_apply_shipping() removes any existing line and adds nothing when the
+   * state is empty, so a saved order whose district is cleared loses its
+   * shipping entirely. The form has to say so BEFORE the save, because the
+   * Order total on screen is the figure read out to the customer.
+   */
+  check('clearing the district drops the stored shipping line',
+    shippingRow(view), ['Shipping', '—'])
+  check('and the Order total drops with it, items only',
+    totalOf(view), '500.00')
+  check('the note says the line is removed, not recalculated',
+    totalsNote(view).includes('the district was cleared, so the shipping line is removed'), true)
 }
 
 // ---- an older plugin serves no rate table --------------------------------

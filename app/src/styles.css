@@ -410,8 +410,11 @@ button {
 
 /* ---------- Order form ---------- */
 
+/* The bottom padding keeps the last section clear of the FIXED save bar, which
+   reserves no space of its own. It has to cover the bar's height plus its
+   safe-area inset, or the trash action ends up underneath it. See .form-actions. */
 .form-main {
-  padding: 12px 16px 24px;
+  padding: 12px 16px calc(84px + env(safe-area-inset-bottom));
 }
 
 .form-section {
@@ -679,15 +682,33 @@ button {
   flex: 1 1 0;
 }
 
-/* ---------- Sticky save ---------- */
+/* ---------- Save bar ---------- */
 
+/*
+ * FIXED, not sticky, and the form reserves room for it below.
+ *
+ * `position: sticky; bottom: 0` was wrong in a way that is easy to miss: a
+ * pinned sticky element keeps its space in the flow at its ORIGINAL position,
+ * so nothing below it moves, and the pinned bar paints straight over whatever
+ * content is behind it. On a form taller than the viewport that meant the save
+ * bar sitting across the middle of the Items section, obscuring a line's price
+ * fields. It also read as a second Save button, because the one in the flow is
+ * further down the same page.
+ *
+ * Fixed plus reserved padding is the pattern `.fab` / `.orders-main` already
+ * uses here: exactly one bar, always in reach, never on top of anything.
+ */
 .form-actions {
-  position: sticky;
+  position: fixed;
+  right: 0;
   bottom: 0;
+  left: 0;
+  z-index: 2;
   padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
   background: var(--bg);
   border-top: 1px solid var(--line);
 }
+
 
 /* ---------- Fees ---------- */
 

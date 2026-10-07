@@ -46,39 +46,59 @@ function ai_get_shipping_rate($state_code) {
 /**
  * Replace the order's shipping lines with the flat rate for its billing state.
  *
+ * NO DISTRICT MEANS NO SHIPPING, and that has to hold whether the order never
+ * had a district or had one and lost it. So the removal is UNCONDITIONAL and
+ * happens first, and the totals are always recalculated. Only the adding of a
+ * new line depends on there being a state.
+ *
+ * This function used to return early on an empty state, before removing
+ * anything, which caused two separate bugs: an order whose district was cleared
+ * kept the old rate on it and in its total (order 11361 on staging, left with a
+ * 120.00 Gazipur line and no district), and nothing recalculated totals, which
+ * ai_rest_finalize_order() worked around by calling calculate_totals() itself.
+ * Both came from the same early return. Do not reintroduce it - "skip when
+ * there is nothing to add" is not the same as "skip when there is nothing to
+ * do", and an order that had a district is the case where they differ.
+ *
  * @param WC_Order $order
  * @return void
  */
 function ai_apply_shipping(WC_Order $order) {
     $state_code = $order->get_billing_state();
-    if (empty($state_code)) {
-        ai_log('Shipping skipped: billing state is empty', $order->get_id());
-        return;
-    }
 
-    $rate = ai_get_shipping_rate($state_code);
-
+    // First, and whatever the state is. A line left behind here is a figure on
+    // a customer's invoice that nothing in this plugin will remove later.
     foreach ($order->get_items('shipping') as $item_id => $shipping_item) {
         $order->remove_item($item_id);
     }
 
-    $shipping = new WC_Order_Item_Shipping();
-    $shipping->set_method_id('flat_rate');
-    $shipping->set_method_title($rate['label']);
-    $shipping->set_total($rate['cost']);
-    $order->add_item($shipping);
+    $rate = null;
+    if (!empty($state_code)) {
+        $rate = ai_get_shipping_rate($state_code);
+
+        $shipping = new WC_Order_Item_Shipping();
+        $shipping->set_method_id('flat_rate');
+        $shipping->set_method_title($rate['label']);
+        $shipping->set_total($rate['cost']);
+        $order->add_item($shipping);
+    }
 
     // WC_Abstract_Order::calculate_totals() ends with $this->save(), so it
-    // persists the removed/added shipping lines and the recalculated totals.
-    // Do not add a save() here - it would be a redundant second write.
+    // persists the removed and added shipping lines along with the
+    // recalculated totals. Do not add a save() here - it would be a redundant
+    // second write. It runs on BOTH paths: with no state there is still a
+    // removal to persist and a total to bring down.
     $order->calculate_totals();
 
-    ai_log('Shipping applied', [
-        'order' => $order->get_id(),
-        'state' => $state_code,
-        'cost'  => $rate['cost'],
-        'label' => $rate['label'],
-    ]);
+    ai_log(
+        $rate === null ? 'Shipping cleared: no billing state' : 'Shipping applied',
+        [
+            'order' => $order->get_id(),
+            'state' => $state_code,
+            'cost'  => $rate === null ? 0 : $rate['cost'],
+            'label' => $rate === null ? '' : $rate['label'],
+        ]
+    );
 }
 
 /**

@@ -101,6 +101,17 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, reorderFrom, sign
     shipping: { cost: null, label: '' },
     /** The server's order total, valid until a local edit diverges from it. */
     serverTotal: null,
+    /**
+     * The district the order was LOADED with, or null on a new order.
+     *
+     * Not the same question as `dirty.has('state')`: that stays set once the
+     * select has been touched, even if it is put back. This is what the stored
+     * shipping line corresponds to, so comparing the select against it answers
+     * "does the server's line still describe what a save would produce?".
+     * Changing the district and changing it back means the stored line is
+     * accurate again, and should come back.
+     */
+    loadedState: null,
     warnings: [],
   }
 
@@ -966,24 +977,35 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, reorderFrom, sign
     }
 
     /*
-     * Shipping. The server owns it, and on a saved order what it actually
-     * charged is what shows.
+     * Shipping. Two sources, and which one is right depends on one question:
+     * does the server's stored line still describe what a save would produce?
      *
-     * Before the first save there is no server line, and a dash there used to
-     * leave the Order total short by the shipping amount - the figure staff
-     * read out to the customer. So the rate the server WOULD apply is shown
-     * instead, looked up by district in /meta's table. Nothing is computed
-     * here: the rate is the plugin's, fetched, not restated.
+     *   district UNTOUCHED -> the stored line wins, always. It may have been
+     *     adjusted in wp-admin to something the rate table does not hold, and
+     *     that adjustment has to survive being looked at.
+     *   district EDITED, or no stored line at all (an unsaved order) -> show
+     *     what the save will actually produce: the table rate for whatever the
+     *     select now holds, or NOTHING if it has been cleared.
      *
-     * shippingRateFor() returns null for NO district, because the server adds
-     * no line in that case either. Showing the default there would overstate
-     * every unsaved order with a blank district.
+     * The second case is the whole point. A dash on an unsaved order left the
+     * Order total short by the shipping amount, and a stale stored line on an
+     * order whose district was just cleared left it over by the same. Both are
+     * figures read out to a customer.
+     *
+     * shippingRateFor() returns null for NO district because the server adds no
+     * line in that case either - ai_apply_shipping() removes any existing one
+     * and adds nothing. Showing the default for a blank district would be the
+     * same bug in the other direction.
+     *
+     * Nothing is computed here. The rate is the plugin's, fetched from /meta.
      */
-    const preview = state.shipping.cost === null
-      ? shippingRateFor(districtSelect.value)
-      : null
-    const shippingCost = state.shipping.cost ?? preview?.cost ?? null
-    const shippingLabel = state.shipping.cost !== null
+    const districtEdited = state.loadedState !== null
+      && districtSelect.value !== state.loadedState
+    const useStoredLine = state.shipping.cost !== null && !districtEdited
+
+    const preview = useStoredLine ? null : shippingRateFor(districtSelect.value)
+    const shippingCost = useStoredLine ? state.shipping.cost : (preview?.cost ?? null)
+    const shippingLabel = useStoredLine
       ? (state.shipping.label || 'Shipping')
       : (preview?.label || 'Shipping')
 
@@ -1009,13 +1031,18 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, reorderFrom, sign
     /*
      * Worded for the case actually on screen. It used to say "the district
      * changed, so shipping recalculates" on a brand-new order, where nothing
-     * had changed and there was no previous district to change from.
+     * had changed and there was no previous district to change from - and on a
+     * saved order it said that while still showing the OLD figure. The figure
+     * above is now what the save produces, so these lines describe it rather
+     * than apologising for it.
      */
-    if (state.orderId !== null && state.dirty.has('state')) {
+    if (districtEdited && districtSelect.value === '') {
+      reasons.push('the district was cleared, so the shipping line is removed')
+    } else if (districtEdited) {
       reasons.push('the district changed, so shipping is recalculated')
-    } else if (state.shipping.cost === null && shippingCost !== null) {
+    } else if (!useStoredLine && shippingCost !== null) {
       reasons.push('shipping is the flat rate for the district and is applied on save')
-    } else if (state.shipping.cost === null && districtSelect.value === '') {
+    } else if (!useStoredLine && districtSelect.value === '') {
       reasons.push('no district is selected, so no shipping is added')
     }
     if (unknown > 0) reasons.push('unpriced items are priced')
@@ -1350,6 +1377,9 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, reorderFrom, sign
         }
 
     state.serverTotal = toNumber(order.total)
+    // Recorded AFTER the select has been filled above, so the two always agree
+    // at load time and an untouched district can never read as edited.
+    state.loadedState = districtSelect.value
 
     state.dirty.clear()
     state.itemsDirty = false

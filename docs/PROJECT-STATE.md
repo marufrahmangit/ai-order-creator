@@ -2,15 +2,20 @@
 
 Working brief for resuming this project cold. Present state only — git log is the history.
 
-Plugin header: **Order Ops v6.9**, Updated 2026-10-07. App **0.4.0**. Live runs **6.6**.
+Plugin header: **Order Ops v7.0**, Updated 2026-10-07. App **0.5.0**. Live runs **6.6**.
 Staging runs **6.6**, against which **build steps 1-7 are built AND verified** — the API
 layer end to end, and the app confirmed in a browser as an installed standalone PWA.
 
-**Staging is three plugin versions behind the repo.** 6.7, 6.8 and 6.9 are committed and
-none has been uploaded. They collapse into one upload: 6.7 added
-`GET /customers/last-order`, 6.8 corrected it by removing a parameter, and 6.9 added
-`shipping_rates` to `/meta`. **Only 6.9 needs to go up** — 6.7 was never deployed, so its
-mistake never reached a server.
+**Staging is four plugin versions behind the repo.** 6.7, 6.8, 6.9 and 7.0 are committed
+and none has been uploaded. They collapse into one upload: 6.7 added
+`GET /customers/last-order`, 6.8 corrected it by removing a parameter, 6.9 added
+`shipping_rates` to `/meta`, and 7.0 fixed a shipping data-correctness bug. **Only 7.0
+needs to go up** — 6.7 was never deployed, so its mistake never reached a server.
+
+**7.0 carries a data fix that existing orders do not get for free.** Any order whose
+district was cleared while 6.x was running still holds a stale shipping line and a total
+that includes it. The fix prevents new ones; it does not repair old ones. Each needs one
+save after the upload. See Unverified / open for what is and is not known about how many.
 
 **Steps 8, 9 and 10 came after the original seven-step plan** and are the only work not
 yet exercised against staging or a browser. See Build steps.
@@ -26,11 +31,11 @@ say what exists, what is proven, and what is merely written down.**
 **There is no feature work queued.** Everything in the Build steps table is built and
 passes its checks locally. Two of those checks are in the repo and one is not:
 
-- **`npm test` in `app/`** — nine suites, 206 assertions. In the repo. Run this first.
+- **`npm test` in `app/`** — ten suites, 227 assertions. In the repo. Run this first.
 - **`php -l` over all 27 PHP files** — needs the portable PHP described under
   Conventions, which is not in the repo either but takes one download to set up.
 - **A contract check** that greps the real PHP and JS source and asserts every field
-  name and behavioural rule they must agree on — 188 assertions at 6.9. **This is a
+  name and behavioural rule they must agree on — 196 assertions at 7.0. **This is a
   scratch tool, rebuilt per session, and is NOT in the repo.** Do not go looking for it.
   It is mentioned because the counts quoted in this document came from it, and because
   rebuilding it is cheap and has caught real drift; but `npm test` is the durable check.
@@ -40,28 +45,32 @@ None of them needs a server.
 **The next work is deployment and verification, and it is operational, not code.** In
 order, because each step depends on the one before:
 
-1. Upload plugin **6.9** and confirm `GET /aioc/v1/ping` reports `6.9`. A stale version
+1. Upload plugin **7.0** and confirm `GET /aioc/v1/ping` reports `7.0`. A stale version
    here causes misleading 404s on new routes, so do not skip the check.
-2. Verify **6.9**: `GET /meta` now carries `shipping_rates` with `default` 150.00 and
+2. Verify **7.0**'s shipping fix on order 11361, which is the reported case: it has an
+   empty billing state and a stale 120.00 Gazipur line. Save it — from the app or from
+   wp-admin, both paths run the same function — and confirm the line is gone and the
+   total drops by 120.00. Then set a district, save, and confirm the right rate appears.
+3. Verify **6.9**: `GET /meta` now carries `shipping_rates` with `default` 150.00 and
    `by_state` holding BD-13 at 80.00 and BD-18 at 120.00, as numeric strings at 2dp.
-3. Verify **6.8**'s endpoint: `GET /customers/last-order` for a repeat customer, a new
+4. Verify **6.8**'s endpoint: `GET /customers/last-order` for a repeat customer, a new
    customer (200 `{found: false}`), and a bad phone (400 `aioc_invalid_phone`). Also
    confirm the legacy AJAX admin tool still works, since the lookup was extracted out
    from under it in 6.7.
-4. Verify the app against staging from `npm run dev`, with `ai_app_origin` still
+5. Verify the app against staging from `npm run dev`, with `ai_app_origin` still
    `http://localhost:5173`. Nothing in steps 8, 9 or 10 has been seen in a browser:
    the repeat-customer card, Reorder from both entry points, and the shipping figure on
    an unsaved order. The specifics worth checking are listed under Unverified / open.
-5. Stand up `ops.cartmixbd.com`, then `npm run build` in `app/` and upload `app/dist/`.
-6. Change `ai_app_origin` to `https://ops.cartmixbd.com`. **This breaks local development
+6. Stand up `ops.cartmixbd.com`, then `npm run build` in `app/` and upload `app/dist/`.
+7. Change `ai_app_origin` to `https://ops.cartmixbd.com`. **This breaks local development
    until changed back** — it holds one origin, not a list.
-7. Decide whether the app points at live. Live already runs the 6.x plugin, so the routes
+8. Decide whether the app points at live. Live already runs the 6.x plugin, so the routes
    are there — but **live's REST layer has never been exercised at all**, and
    `ai_app_origin` is expected to be empty there, which means no browser can reach it.
    Confirm that before assuming either way: empty is the safe state, and it is also what
    would make a first attempt from the app fail with no CORS headers.
 
-Steps 1-4 can be done today against staging. Steps 5-7 need the subdomain.
+Steps 1-5 can be done today against staging. Steps 6-8 need the subdomain.
 
 **Two traps when testing the production build on localhost, both of which have already
 cost a debugging round:**
@@ -265,6 +274,11 @@ parser becomes one feature inside it, not the whole tool.
       `formatMoney()` goes through `Intl` and which glyph BDT renders as depends on the
       runtime's ICU data — Node gives `BDT 80.00` where a browser gives `৳80.00`. An
       assertion on the full string tests ICU, not the rate.
+  - `test/save-bar.test.mjs` — asserts there is exactly one save button and one save bar
+    in the form's DOM, for a new order and a loaded one, and that the layout rule holds at
+    BOTH ends: the bar is `fixed`, and `.form-main` reserves room below its content.
+    Fixing either alone reintroduces the overlap, which is why both are pinned. Confirmed
+    to fail when the old `sticky` rule is put back.
   - The DOM shim and module loader the view tests share live in `test/dom-shim.mjs`.
     A new module under `src/` must be listed in its `VIEW_MODULES` or the view suites
     fail to resolve it.
@@ -334,6 +348,14 @@ parser becomes one feature inside it, not the whole tool.
   light surface and the dark header opts in with `.app-header .button.link`. Contrast
   pairs are asserted by number in `app/test/contrast.test.mjs`, because the only thing
   that catches this otherwise is looking, and looking is what had already been done.
+- **`position: sticky` reserves no space, so a pinned sticky bar paints over the content
+  behind it.** Its flow space stays at its ORIGINAL position, so nothing below it moves.
+  The order form's save bar was `sticky; bottom: 0` and sat across the middle of the
+  Items section on any form taller than the viewport, obscuring a line's price inputs —
+  and read as a second Save button, since the one in the flow was further down the same
+  page. Use `fixed` plus reserved padding on the scrolling content, which is what
+  `.fab` / `.orders-main` already do. Both halves are required; either alone brings the
+  bug back in a different form.
 - The app builds nodes and sets `textContent`; it never assembles HTML from data.
   Order data is staff-pasted free text, so string-built markup would be an injection
   risk. `dom.js` has no `html` option by design.
@@ -379,12 +401,29 @@ parser becomes one feature inside it, not the whole tool.
     hardcoded values, and a second place a rate can come from. **Recorded as available
     if rates start changing often** — the structure `ai_get_shipping_rates()` returns is
     already the shape an option would store.
+  - **An order with no district has NO shipping, and that holds whether it never had one
+    or had one and lost it.** `ai_apply_shipping()` removes every existing shipping line
+    **unconditionally and first**, then adds one only if there is a state, then always
+    recalculates totals. Clearing a district therefore clears the line.
+    - **Do not reintroduce an early return for the empty-state case.** One was there
+      until 7.0 and caused two separate bugs: an order whose district was cleared kept
+      the old rate in its stored total (order 11361 on staging — an empty state with a
+      120.00 Gazipur line that re-saving would not clear), and nothing recalculated
+      totals, which `ai_rest_finalize_order()` worked around by calling
+      `calculate_totals()` itself. That workaround is now gone; with the root cause fixed
+      it would be a second write of correct figures. **"Nothing to add" is not the same
+      as "nothing to do"**, and an order that previously had a district is exactly where
+      they differ.
+    - The admin hooks need no separate handling and never did:
+      `woocommerce_process_shop_order_meta` and `woocommerce_before_save_order_items`
+      both reach this function via `ai_apply_shipping_to_order_id()`, which has no state
+      branch of its own. The bug and the fix both apply to wp-admin identically.
   - **One asymmetry, which is easy to get backwards.** `ai_get_shipping_rate('')`
     returns the Outside Dhaka default — but `ai_apply_shipping()` never asks it for an
-    empty state. It logs and returns early, adding **no shipping line at all**. So the
-    default is the rate for a district that is **set but unrecognized**, not for an order
-    with no district. Anything previewing a rate must show nothing for a blank district,
-    or it overstates every such order.
+    empty state, because the add is skipped. So the default is the rate for a district
+    that is **set but unrecognized**, not for an order with no district. Anything
+    previewing a rate must show nothing for a blank district, or it overstates every
+    such order.
 - **The form shows the expected shipping before the first save, by LOOKING IT UP, not by
   computing it.** An unsaved order used to show a dash for shipping and an Order total
   short by 80-150 BDT, and that total is read out to a customer on the phone. The
@@ -393,9 +432,20 @@ parser becomes one feature inside it, not the whole tool.
     select currently holds, and updates live as it changes — whether the district was set
     by Reorder, by Parse, or by hand. **Still not a calculation in the app**: the rate is
     the plugin's, fetched.
-  - **A saved order always shows the server's actual shipping line**, even where that
-    differs from the table, because someone may have adjusted it in wp-admin. The server
-    stays authoritative; the preview only fills the gap before the first save.
+  - **On a saved order, which figure is right turns on one question: does the stored
+    line still describe what a save would produce?**
+    - **District untouched → the stored line wins, always.** It may have been adjusted in
+      wp-admin to a figure the rate table does not hold, and that adjustment has to
+      survive being looked at.
+    - **District edited → show what the save will produce** — the table rate for the new
+      district, or nothing at all if it was cleared. Until 7.0 the stored line kept
+      showing here, so selecting "No district" left its amount in the Order total, and
+      changing districts showed the old rate. The explanatory line claimed the district
+      had changed while displaying the figure from before it did.
+    - **The comparison is against the district the order was LOADED with, not
+      `dirty.has('state')`.** That flag stays set once the select has been touched, even
+      if it is put back — and putting it back makes the stored line accurate again, so it
+      has to come back. `state.loadedState` is what the stored line corresponds to.
   - `state.shipping` in `order-form.js` means **the server's line and only that**, and
     `applyServerOrder()` is its only writer. That is what keeps "has the server told us?"
     answerable, which is the question the whole fallback turns on.
@@ -782,6 +832,7 @@ parser becomes one feature inside it, not the whole tool.
 | 8 | Repeat-customer last-order lookup | done, **not yet on staging** | 6.8 |
 | 9 | Reorder — from the last-order card and from each list row | done, **unverified in a browser** | app 0.3.0 |
 | 10 | Expected shipping on an unsaved order | done, **not yet on staging, unverified in a browser** | 6.9 / app 0.4.0 |
+| 11 | Shipping cleared with the district; save bar fixed | done, **not yet on staging, unverified in a browser** | 7.0 / app 0.5.0 |
 
 **Steps 1-7 are the original plan, and all seven are built and verified** — the API layer
 by real requests against staging, the app in a browser as an installed PWA.
@@ -1096,8 +1147,24 @@ parses clean under `php -l`, which had never been checked before.
   missed; and variation-level SKUs are findable only by exact match via
   `wc_get_product_id_by_sku()`, the parent-first search never reaching a partial one.
   Parent/simple SKU partial matching IS verified.
-- **Nothing in 6.7, 6.8 or 6.9 has run on a server.** Staging is on 6.6. Uploading 6.9
-  covers all three.
+- **Nothing in 6.7, 6.8, 6.9 or 7.0 has run on a server.** Staging is on 6.6. Uploading
+  7.0 covers all four.
+- **How many orders carry a stale shipping line is NOT KNOWN, and cannot be answered from
+  this repo.** The 7.0 fix stops new ones; it does not repair existing ones, each of
+  which needs one save. Nothing here has database or staging access, so the count is
+  unknown rather than small. What would answer it: orders whose billing state is empty
+  while a shipping line exists. Under HPOS that means `wp_wc_orders` joined to
+  `wp_wc_order_addresses` (`address_type = 'billing'`, empty `state`) against
+  `wp_woocommerce_order_items` (`order_item_type = 'shipping'`) — or, matching this
+  project's no-raw-SQL convention, a `wc_get_orders()` pass checking
+  `get_billing_state()` against `get_items('shipping')`. **Order 11361 is the one
+  confirmed instance**, and only because it was reported.
+- **Nothing in 7.0 has been seen in a browser.** The saved-order shipping display and the
+  save bar are both covered by tests, but neither has been looked at on a device. Worth
+  checking: that there is visibly one save button and that it never covers a line's price
+  inputs on a long form; that the trash action at the bottom of the form is not hidden
+  behind the bar; and that clearing the district on a saved order drops the shipping row
+  and the Order total before the save, then matches the order after it.
 - **Nothing in 6.9 has run.** `GET /meta` has never been called with `shipping_rates` in
   it, and the app's shipping preview has never been seen in a browser. Verify: that
   `/meta` returns the table with costs as 2dp numeric strings; that a new order with

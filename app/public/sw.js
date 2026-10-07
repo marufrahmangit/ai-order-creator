@@ -28,7 +28,7 @@
  * the OLD index.html and therefore the old hashed bundle, indefinitely. There
  * is no automatic invalidation to fall back on.
  */
-const SHELL_VERSION = 'v8';
+const SHELL_VERSION = 'v9';
 
 const SHELL_CACHE = `orderops-shell-${SHELL_VERSION}`;
 
