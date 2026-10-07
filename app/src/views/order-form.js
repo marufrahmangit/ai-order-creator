@@ -240,8 +240,18 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, signal }) {
   /** The in-flight lookup, aborted before each new one. */
   let lookupPending = null
 
-  /** The number the visible card belongs to, so an unchanged number is not refetched. */
-  let lookupShownFor = ''
+  /**
+   * The last number looked up and what came back for it.
+   *
+   * The RESULT is cached, not just the number, and that is the point: deleting
+   * a digit hides the card without forgetting the lookup, so retyping the same
+   * number re-shows it from memory instead of asking the server again.
+   * Backspacing through a number therefore costs no requests at all.
+   *
+   * Invalidated whenever the order id changes, because `exclude` is part of the
+   * question being asked - see applyServerOrder().
+   */
+  let lookupCache = { phone: '', order: null }
 
   /**
    * Look up this phone number's previous order.
@@ -254,13 +264,19 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, signal }) {
     const phone = normalizeBdPhone(phoneInput.value)
 
     if (phone === '') {
+      // Hide the card, but keep the cache: the number is mid-edit, not wrong.
       lookupPending?.abort()
-      lookupShownFor = ''
       lastOrder.hide()
       return
     }
 
-    if (phone === lookupShownFor) return
+    // Unchanged number: render what it resolved to last time, no request. This
+    // is what keeps deleting and retyping silent.
+    if (phone === lookupCache.phone) {
+      if (lookupCache.order) lastOrder.show(lookupCache.order)
+      else lastOrder.hide()
+      return
+    }
 
     lookupPending?.abort()
     lookupPending = new AbortController()
@@ -276,15 +292,16 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, signal }) {
         lookupPending.signal,
       )
 
-      lookupShownFor = phone
-
       // found: false is the common case and shows nothing at all. A "new
-      // customer" message would be noise on most orders.
-      if (result?.found && result.order) {
-        lastOrder.show(result.order)
-      } else {
-        lastOrder.hide()
+      // customer" message would be noise on most orders. It is cached too, so
+      // a new customer's number is not asked about twice.
+      lookupCache = {
+        phone,
+        order: result?.found && result.order ? result.order : null,
       }
+
+      if (lookupCache.order) lastOrder.show(lookupCache.order)
+      else lastOrder.hide()
     } catch (error) {
       if (error?.name === 'AbortError') return
       if (error?.status === 401) return
@@ -1169,9 +1186,9 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, signal }) {
     pasteBox.open = false
 
     // The loaded order's own phone may have a previous order behind it, and
-    // the exclude id has only just become known, so re-run rather than
-    // trusting whatever the card held.
-    lookupShownFor = ''
+    // the exclude id has only just become known - which changes the question,
+    // so any cached answer is for a different one. Drop it and re-ask.
+    lookupCache = { phone: '', order: null }
     lastOrder.hide()
     runLookup.cancel()
     lookupLastOrder()

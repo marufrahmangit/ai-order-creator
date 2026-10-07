@@ -182,9 +182,11 @@ parser becomes one feature inside it, not the whole tool.
   does not match what they typed;   `test/sw-routing.test.mjs` lifts `routeFor()` out of
   `public/sw.js` and asserts that no API request is ever intercepted; and
   `test/phone-parity.test.mjs` pins `src/phone.js` to values produced by the real
-  `ai_normalize_bd_phone()` under PHP; and `test/view-smoke.test.mjs` CONSTRUCTS every
-  view against a crude DOM shim, which is the only thing in this project that actually
-  runs one. It exists because the 6.7 order-form crash was invisible to everything else:
+  `ai_normalize_bd_phone()` under PHP; `test/view-smoke.test.mjs` CONSTRUCTS every view
+  against a crude DOM shim, which is the only thing in this project that actually runs
+  one; and `test/lookup-exclude.test.mjs` captures the URLs the order form REQUESTS, so
+  the last-order `exclude` parameter is asserted from the query string rather than from
+  the code that builds it. The shim and loader they share live in `test/dom-shim.mjs`. It exists because the 6.7 order-form crash was invisible to everything else:
   the bundler was happy, the contract check greps source text, and the other suites only
   touch pure functions. The first three work by transforming the real
   source rather than duplicating logic; the fourth cannot, because the other side is
@@ -272,6 +274,12 @@ parser becomes one feature inside it, not the whole tool.
   write path. Auto-only; no manual override by design.
 - All WooCommerce statuses are settable from the app, read from
   `wc_get_order_statuses()` rather than hardcoded.
+- **The last-order lookup caches its RESULT per number, not just the number.** Deleting
+  a digit hides the card without forgetting the lookup, so retyping the same number
+  re-shows it from memory and backspacing through a number costs no requests at all. A
+  `{found: false}` answer is cached too, so a new customer's number is not asked about
+  twice. The cache is dropped whenever the order id changes, because `exclude` is part
+  of the question.
 - **The repeat-customer lookup shows the previous order, collapsed.** When the phone
   field holds a valid BD mobile the form fetches that customer's last order and renders
   a one-line summary below the field, expanding to its items, shipping, fees and total.
