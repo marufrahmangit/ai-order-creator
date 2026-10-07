@@ -982,9 +982,19 @@ body.has-pwa-banner .fab {
   padding-top: 10px;
 }
 
-.last-order-open {
+/* Open and Reorder sit together on the left, the status badge on the right. */
+.last-order-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.last-order-open,
+.last-order-reorder {
   padding: 0;
   font-weight: 600;
+  /* Comfortably tappable without pushing the card's header taller. */
+  min-height: 32px;
 }
 
 .last-order-meta {

@@ -235,7 +235,113 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, signal }) {
     setMessage('Unsaved changes here. Tap Open again to discard them and open that order.', 'error')
   }
 
-  const lastOrder = LastOrderCard({ onOpenOrder: requestOpenOrder })
+  /** The order id a second tap would reorder, once the first tap warned. */
+  let reorderConfirmFor = null
+
+  /**
+   * Copy a previous order into this form, for review.
+   *
+   * REORDER FILLS THE FORM. It does not create anything - the staff member
+   * reads it over and taps Save like any other order. (A Clone action that
+   * creates an order outright is a different operation and must not share this
+   * label or this code path.)
+   *
+   * Everything comes from the order object the card already holds, so there is
+   * no second request.
+   *
+   * What is deliberately NOT copied:
+   *   - status: a new order starts at the form's default, not wherever the old
+   *     one ended up. Copying "completed" onto a fresh order would be wrong.
+   *   - shipping: the server recalculates it from the district, every time.
+   *   - the id, number and date: this is a new order, not that one.
+   *
+   * Stock is deliberately NOT pre-checked. A copied line may point at a product
+   * that has since gone out of stock or been deleted, and the write endpoint
+   * already handles both - adding out-of-stock anyway with a warning, skipping a
+   * missing product with a warning. Those warnings surface after save like any
+   * others. Checking here would duplicate the server's judgement against data
+   * that is not saved yet.
+   *
+   * @param {object} order
+   */
+  function applyReorder(order) {
+    const lines = Array.isArray(order.line_items) ? order.line_items : []
+    const fees = Array.isArray(order.fee_lines) ? order.fee_lines : []
+
+    state.items = lines.map((line) => {
+      const quantity = Math.max(1, Number(line.quantity) || 1)
+      const total = toNumber(line.total)
+      return makeItem({
+        product_id: Number(line.product_id) || 0,
+        name: line.name || `Product ${line.product_id}`,
+        quantity,
+        total,
+        // Derived the same way a loaded order derives it, so Price and Total
+        // agree on screen.
+        price: total === null ? null : total / quantity,
+      })
+    })
+
+    state.fees = fees.map((fee) => makeFee({
+      name: fee.name || '',
+      // Negative stays negative: a discount is a negative fee.
+      total: toNumber(fee.total),
+    }))
+
+    // MUST be marked dirty. Both lists are all-or-nothing on update, so without
+    // these flags the payload omits them entirely and the copy saves nothing.
+    state.itemsDirty = true
+    state.feesDirty = true
+
+    // Only fill what the user has not. They may be correcting the customer's
+    // details, and overwriting a name somebody just typed would be rude at best.
+    const fill = (key, control, value) => {
+      if (control.value.trim() !== '') return
+      if (typeof value !== 'string' || value.trim() === '') return
+      control.value = value
+      state.dirty.add(key)
+    }
+
+    const billing = order.billing || {}
+    fill('name', nameInput, billing.first_name)
+    fill('address_1', addressInput, billing.address_1)
+    fill('customer_note', noteInput, order.customer_note)
+
+    renderItems()
+    renderFees()
+    renderTotals()
+
+    const itemWord = state.items.length === 1 ? 'item' : 'items'
+    setMessage(
+      `Copied ${state.items.length} ${itemWord} from #${order.number}. Review, then save.`,
+    )
+  }
+
+  /**
+   * Reorder replaces the items and fees wholesale rather than appending, so a
+   * form that already has either would lose them. Confirm once in that case -
+   * the same tap-again step the navigation guard beside it uses.
+   */
+  function requestReorder(order) {
+    const hasContent = state.items.length > 0 || state.fees.length > 0
+
+    if (!hasContent || reorderConfirmFor === order.id) {
+      reorderConfirmFor = null
+      applyReorder(order)
+      return
+    }
+
+    reorderConfirmFor = order.id
+    setMessage(
+      `This replaces the items and fees already on the form. Tap Reorder again to copy #${order.number}.`,
+      'error',
+    )
+  }
+
+  const lastOrder = LastOrderCard({
+    onOpenOrder: requestOpenOrder,
+    onReorder: requestReorder,
+  })
 
   /** The in-flight lookup, aborted before each new one. */
   let lookupPending = null

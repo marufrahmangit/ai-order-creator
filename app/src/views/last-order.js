@@ -13,9 +13,12 @@ import { formatMoney, formatDateTime } from '../format.js'
 import { el, clear } from '../dom.js'
 
 /**
- * @param {{ onOpenOrder: (id: number) => void }} options
+ * @param {{
+ *   onOpenOrder: (id: number) => void,
+ *   onReorder: (order: object) => void,
+ * }} options
  */
-export function LastOrderCard({ onOpenOrder }) {
+export function LastOrderCard({ onOpenOrder, onReorder }) {
   const node = el('div', { class: 'last-order', hidden: true })
 
   /** Shown when the lookup found nothing, or has not run. */
@@ -60,15 +63,28 @@ export function LastOrderCard({ onOpenOrder }) {
 
     const detail = el('div', { class: 'last-order-detail' }, [
       el('div', { class: 'last-order-head' }, [
-        // Tapping the number opens that order. A button rather than the whole
-        // card, so expanding the card cannot navigate by accident.
-        el('button', {
-          type: 'button',
-          class: 'button link last-order-open',
-          text: `Open #${order.number}`,
-          'aria-label': `Open order ${order.number}`,
-          onClick: () => onOpenOrder(order.id),
-        }),
+        el('div', { class: 'last-order-actions' }, [
+          // Tapping the number opens that order. A button rather than the whole
+          // card, so expanding the card cannot navigate by accident.
+          el('button', {
+            type: 'button',
+            class: 'button link last-order-open',
+            text: `Open #${order.number}`,
+            'aria-label': `Open order ${order.number}`,
+            onClick: () => onOpenOrder(order.id),
+          }),
+          // "Reorder" fills the form from this order for review. It does NOT
+          // create anything - the staff member still taps Save. Inside the
+          // expanded card, beside the order number, so it reads as an action on
+          // THIS order rather than on the form.
+          el('button', {
+            type: 'button',
+            class: 'button link last-order-reorder',
+            text: 'Reorder',
+            'aria-label': `Copy order ${order.number} into this form`,
+            onClick: () => onReorder(order),
+          }),
+        ]),
         el('span', {
           class: `badge badge-${order.status}`,
           text: order.status_label || order.status,
