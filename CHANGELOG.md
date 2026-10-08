@@ -2,6 +2,32 @@
 
 All notable changes to AI Order Creator are documented in this file.
 
+## App 0.10.0
+
+App only. The plugin is unchanged at 7.1.
+
+- **The CartMix logo is now every icon the app ships**, replacing the step 7 placeholders. All of them are generated from `public/icons/logo.png` by the new `scripts/make-icons.mjs`. The script has no dependencies, using a small PNG codec in `scripts/png.mjs`.
+  - **Source:** 500×500, RGB, **no transparency**, on opaque white. Every icon is therefore opaque white with the logo centred and its white margin trimmed, and nothing has to be cut out.
+  - **Sizes:** 192 and 512 "any" icons, a 180 apple-touch-icon and a new 32 favicon, each with the artwork spanning 88% of the side, or 96% for the favicon.
+  - **Maskable 512:** the logo is wide, so fitting its bounding box would not keep it inside the safe zone. The ends of the speed lines and of "MIX" are far from the centre even though the box's corners are empty. It is scaled until the **farthest drawn pixel** sits at 94% of the 40% safe radius, and white fills to the edge, so any mask shape shows background rather than a hole.
+  - **Legibility:** clear at 192, and "CART" and "MIX" are just legible at 72px. **At 48px the wordmark blurs into a yellow band**, although the cart's shape and colours still read. That is the limit of a horizontal logo with a wordmark. If it reads poorly on real home screens, the fix is a cart-only mark, not a different crop.
+  - `manifest.webmanifest` needed no edit, because its entries name the same files. `index.html` gains the favicon link; the apple-touch-icon link already pointed at the regenerated file. The service worker precaches the favicon and the login logo.
+- **The logo is on the login screen**, above "Order Ops", at 200px wide from a 400px file. It sits on the white sign-in card it was drawn for. **Not in the header:** the logo's teal is 1.41:1 against the dark header bar, so it would need a white plate or a light-on-dark version that doesn't exist, and it would cost vertical space on every screen of a phone.
+- **Password Show / Hide on the login screen.** Hidden by default.
+  - It is a worded button **beside** the field, outside its border, at its right-hand end and at full tap height, so it is not mistaken for part of the value.
+  - It does not take focus, so a phone keeps its keyboard, and it cannot submit the form.
+  - It turns the field back to `type="password"` before the form submits, so password managers see a password field and the password is never left showing. `autocomplete="current-password"` is kept throughout, and autocorrect is off on the field.
+- **Investigated "remember me": not built.** Sign-in already persists in `localStorage` until Sign out. The only other things that remove it are a 401 on an authenticated request and a corrupt stored value, and nothing expires it. What looks like being signed out is per-origin storage: dev, preview and production each keep their own sign-in. The other causes are private windows, clearing site data, and iOS keeping a home-screen app's storage separate from Safari's. Recorded in `docs/PROJECT-STATE.md`, along with a proposed but unbuilt opt-out "Keep me signed in" for shared phones.
+- **New `test/icons.test.mjs`** (36 checks):
+  - Every icon is rebuilt in memory from `logo.png` and compared byte for byte.
+  - Manifest sizes and purposes are correct.
+  - Nothing in the maskable icon lies outside the safe circle, and its corners are filled.
+  - Every icon is opaque.
+  - `index.html`, the precache list and the login screen point at real files.
+- **New `test/login.test.mjs`** (29 checks): the toggle's behaviour, and the persistence evidence above. That covers surviving a relaunch, a 500 or a wrong login password not signing anyone out, a 401 doing so, and the three code paths that can remove the credential.
+- Both suites were confirmed to fail when broken: a stale icon, the field left as text at submit, and the toggle taking focus.
+- **`npm test`: 14 suites, 421 assertions.** `SHELL_VERSION` is bumped to `v14`; the icons are part of the cached shell.
+
 ## App 0.9.0
 
 App only. The plugin is unchanged at 7.1.

@@ -2,7 +2,7 @@
 
 Working brief for resuming this project cold. Present state only — git log is the history.
 
-Plugin header: **Order Ops v7.1**, Updated 2026-10-08. App **0.9.0**.
+Plugin header: **Order Ops v7.1**, Updated 2026-10-08. App **0.10.0**.
 **Staging runs 7.0. Live runs 6.6.** Neither has 7.1.
 
 **Build steps 1 through 11 are built AND verified on staging** — the API layer by real
@@ -10,11 +10,12 @@ requests, the app in a browser, including as an installed standalone PWA. Steps 
 came after the original seven-step plan and were verified at 6.8 and 7.0; what those
 checks did NOT cover is listed under Unverified / open.
 
-**Steps 12-16 — decimal quantities (7.1 / app 0.6.0), New order from the form (app
+**Steps 12-17 — decimal quantities (7.1 / app 0.6.0), New order from the form (app
 0.6.0), the unsaved-changes guard on every exit from the form (app 0.7.0), that warning
-made visible plus the update banner's Reload guarded (app 0.8.0), and Save kept clear of
-the update banner (app 0.9.0) — are built and pass every local check, but have not run
-on a server or in a browser.** 7.1 is a correctness fix, not a nicety: the *Decimal Product Quantity for
+made visible plus the update banner's Reload guarded (app 0.8.0), Save kept clear of
+the update banner (app 0.9.0), and the CartMix logo as every icon plus a password
+Show/Hide on the login screen (app 0.10.0) — are built and pass every local check, but
+have not run on a server or in a browser.** 7.1 is a correctness fix, not a nicety: the *Decimal Product Quantity for
 WooCommerce* plugin is now active on BOTH sites, and every plugin up to 7.0 `(int)`-casts
 quantity, so **any fractional quantity sent through the app on either site today is
 silently saved as a whole number.** Upload 7.1 to staging first, and to live soon after.
@@ -41,10 +42,10 @@ list below.
 say what exists, what is proven, and what is merely written down.**
 
 **There is no feature work queued.** Everything in the Build steps table is built and
-passes its checks locally; steps 1-11 are verified on staging, 12-16 are not yet. Two of
+passes its checks locally; steps 1-11 are verified on staging, 12-17 are not yet. Two of
 those checks are in the repo and one is not:
 
-- **`npm test` in `app/`** — twelve suites, 356 assertions. In the repo. Run this first.
+- **`npm test` in `app/`** — fourteen suites, 421 assertions. In the repo. Run this first.
 - **`php -l` over all 27 PHP files** — needs the portable PHP described under
   Conventions, which is not in the repo either but takes one download to set up.
 - **A contract check** that greps the real PHP and JS source and asserts every field
@@ -153,9 +154,45 @@ parser becomes one feature inside it, not the whole tool.
   degradation, not a bug, but it is the first thing to check if fractions stop sticking.
   The 2-decimal limit is ours (`AIOC_QUANTITY_DECIMALS`), because that plugin sets none.
 - **Code Snippets is a second place code runs on these sites, and it has already been
-  load-bearing twice.** Two things to know:
+  load-bearing three times.** **Two snippets are now REQUIRED alongside this plugin**, on
+  both sites. Both live in the database, not in this repo, so **neither survives a site
+  migration or rebuild unless Code Snippets' data comes with it** — and nothing in the
+  repo will notice they are missing.
   - Custom order statuses live in a Code Snippets snippet that hooks `wc_order_statuses`,
     not in this plugin.
+  - **"Decimal qty step fix (order edit)"**, on staging AND live, makes fractional
+    quantities saveable in **wp-admin**. It is a workaround for a gap in the *Decimal
+    Product Quantity* plugin, not for anything in this repo, and the app does not need
+    it — the REST path never touches these inputs.
+    - **What breaks without it:** WooCommerce renders each order line's quantity as
+      `<input type="number" step="1" min="1" name="order_item_qty[N]">`, and the decimal
+      plugin does not raise `step`. A value like 1.5 then fails HTML5 validation and the
+      browser silently refuses to submit — **the order edit screen's Update button and
+      the Add order screen's Create button both look dead**: no request, no visible
+      error. The invalid control sits in a panel the browser cannot focus, so it cannot
+      show its usual "please enter a valid value" bubble either.
+    - **What it does:** sets `step="0.01"` and `min="0.01"` on those inputs, matching
+      this plugin's 2dp limit, and runs a `MutationObserver` to re-apply them whenever
+      WooCommerce re-renders the order items panel over AJAX. **The observer is
+      load-bearing**: a product added to the order arrives in a freshly rendered row
+      with `step="1"` again, which is exactly the Add order case.
+    - **Diagnostic, because the symptom misleads:** a save button in wp-admin that does
+      nothing, with nothing in the console except
+      `An invalid form control with name='order_item_qty[N]' is not focusable`, means an
+      input's `step` or `min` is rejecting the value. Check the snippet is active, then
+      inspect the row's input for `step="1"`.
+    - Recorded as reported; the snippet's code is not in this repo and was not read here.
+  - **Recommendation: fold BOTH into Order Ops**, the way the shipping table was in 4.9.
+    Each is behaviour this plugin's features depend on — `/meta` and the status
+    dropdown read the custom statuses, and decimal quantities are only usable in
+    wp-admin with the step fix — so each belongs in versioned, reviewed code that ships
+    with the plugin rather than in a database row that a migration can drop. The custom
+    statuses matter more: if their snippet is lost, orders keep their stored status but
+    the status is no longer registered, so they drop out of wp-admin's lists and `/meta`.
+    The step fix should only apply while the decimal plugin is active, so a folded-in
+    copy should check for it rather than assume. Do it the way 4.9 did: ship the plugin
+    version that carries the code, then DELETE the snippet on both sites in the same
+    sitting, so two copies are never both running. Not done here.
   - **The shipping rates used to live there too.** They were folded into this plugin in
     4.9 and then DELETED from Code Snippets, so that only one table exists. **If shipping
     or custom statuses ever behave oddly, check Code Snippets on BOTH sites for a
@@ -244,7 +281,7 @@ parser becomes one feature inside it, not the whole tool.
     requiring it without `ABSPATH` defined exits silently with status 0.
   - The Groq path still cannot be exercised locally: it needs network and a key. Only
     the deterministic pipeline is reachable, which is where the parsing logic lives.
-- App tests: `npm test` in `app/`. No dependencies, no browser, **twelve suites, 356
+- App tests: `npm test` in `app/`. No dependencies, no browser, **fourteen suites, 421
   assertions**. Some read the real source and lift part of it, so they cannot drift from
   the code silently; the rest run a view against a crude DOM shim, which is the only
   thing in this project that executes one at all.
@@ -327,6 +364,19 @@ parser becomes one feature inside it, not the whole tool.
     the save payload, checks the list's item-count wording, and asserts no
     `Math.max(1, … quantity)` clamp survives in `src/`. Confirmed to fail when the old
     clamp, the old Price blur or an unguarded New order is put back.
+  - `test/icons.test.mjs` — every icon is rebuilt in memory from `logo.png` by the real
+    `scripts/make-icons.mjs` and compared byte for byte with the committed file, so a
+    logo replaced without rerunning the script cannot ship half-applied. Also: each
+    manifest icon exists at its declared size, no drawn pixel of the maskable icon lies
+    outside the 40% safe circle and its corners are filled, every icon is opaque, and
+    index.html, the service worker's precache and the login screen all point at files
+    that exist.
+  - `test/login.test.mjs` — the password Show/Hide (default hidden, a button beside the
+    field rather than inside it, does not take focus, keeps the field's autocomplete and
+    name, and turns the field back into a password field BEFORE the request), and that a
+    sign-in persists: it survives a relaunch, a 500 or a wrong password at the login
+    screen does not sign anyone out, a 401 on an authenticated request does, and only
+    three code paths can remove the credential at all.
   - `test/exit-guards.test.mjs` — every way out of a dirty order form. For each guarded
     exit (‹ Orders, Open #N, + New order, the update banner's Reload): a clean form goes
     straight out, a dirty one warns on the first tap and goes on the second. Also WHERE
@@ -389,6 +439,19 @@ parser becomes one feature inside it, not the whole tool.
 - **An update is offered, never applied.** A new worker waits; the app shows a
   dismissible "update is ready" banner and only reloads when tapped. Auto-reloading
   would discard a half-filled order form.
+- **Every icon is GENERATED from `app/public/icons/logo.png`** by
+  `node scripts/make-icons.mjs` (from `app/`) — the 192 and 512 manifest icons, the 512
+  maskable, the 180 apple-touch-icon, the 32 favicon and the login screen's logo. No
+  dependencies: `scripts/png.mjs` is a minimal PNG codec. To change the logo, replace
+  `logo.png`, rerun the script, and bump `SHELL_VERSION` — the icons are part of the
+  cached shell. `test/icons.test.mjs` fails if a committed icon no longer matches.
+  - The source is **500x500 RGB with no transparency**, on opaque white. So every icon is
+    opaque white with the logo centred, and nothing is cut out of it.
+  - The logo is a wide horizontal mark, so the **maskable** icon is not fitted by its
+    bounding box but by its FARTHEST DRAWN PIXEL from the centre (243px in the source),
+    scaled to 94% of the 40% safe radius. The speed lines and the end of "MIX" are what
+    set that, not the box's empty corners.
+  - `logo.png` itself ships in `dist/` too, though nothing loads it at runtime. 14KB.
 - **The PWA pins the app to the domain root.** `start_url`, `scope`, the icon paths and
   the `/sw.js` registration are all absolute, so `app/dist/` is no longer portable to a
   subdirectory the way `base: './'` in `vite.config.js` was meant to allow. Fine for
@@ -665,6 +728,45 @@ parser becomes one feature inside it, not the whole tool.
   here. Logout is local-only: it forgets the credential without revoking it, so a
   revoke-on-logout route is still owed - the `uuid` in the `/token` response exists for
   that.
+  - **Signing in persists; there is no "remember me" and there should not be one.**
+    Investigated at app 0.10.0 after a report of repeated logins. The credential is
+    removed by exactly three things: Sign out, a 401 on an authenticated request (the
+    application password no longer authenticates - typically revoked in wp-admin), and
+    a corrupt stored value. Nothing expires it, WordPress application passwords do not
+    expire, and the service worker never touches `localStorage`.
+    `test/login.test.mjs` asserts all of that.
+  - **What LOOKS like being signed out is storage being per-ORIGIN.** `localStorage`
+    belongs to scheme + host + port, so `http://localhost:5173` (`npm run dev`),
+    `http://localhost:4173` (`npm run preview`) and `https://ops.cartmixbd.com` each hold
+    their own, separate sign-in. Moving between them is a fresh login every time, by
+    design. Also: an incognito/private window discards its storage when closed;
+    clearing site data while debugging the service worker (the trap under Start here)
+    wipes the credential with everything else; and on **iOS, a home-screen app keeps its
+    storage separate from Safari's**, so signing in in Safari does not sign in the
+    installed app, and Safari outside the installed app may drop storage for a site not
+    used for a week. The iOS points are platform behaviour stated from knowledge, not
+    observed on these devices — confirm on a staff iPhone before relying on them.
+  - **Proposed, NOT built: an unchecked-by-default "Keep me signed in"** that stores the
+    credential in `sessionStorage` instead, for a staff member signing in on a shared or
+    borrowed phone. It is the opposite of "remember me", because persisting is already
+    the default and the useful choice is opting out of it. Note that sessionStorage in
+    an installed PWA lasts until the app is closed, so "not kept" means signing in after
+    every cold launch — which is the point on a shared phone and an irritation anywhere
+    else, hence unchecked meaning "keep". Build only if shared phones are real.
+- **The login screen's password field has a Show / Hide button. Hidden by default.** A
+  worded button BESIDE the field, outside its border, at its right-hand end and full tap
+  height — not an icon inside the input, which on a phone reads as part of what was
+  typed. It never takes focus (so the keyboard stays up mid-password), it cannot submit,
+  and the field is turned back to `type="password"` before the form submits, so a
+  password manager offering to save the login sees a password field and the password is
+  never left showing. The field keeps `autocomplete="current-password"` throughout.
+- **The CartMix logo is on the login screen, and NOT in the header.** The login card is
+  white, which is what the logo is drawn for. The header is the dark accent bar, where
+  the logo's teal measures **1.41:1** against `#1f2937` — the cart body all but vanishes
+  — so it would need a white plate (a white box in a dark bar) or a light-on-dark
+  version of the logo that does not exist. It would also spend vertical space above the
+  order list on every screen, on a phone, to tell staff whose app they are using. The
+  home-screen icon and the sign-in screen carry the brand; the header carries the work.
 - **The app stays vanilla ES modules. No framework.** React was considered for step 6's
   product picker and rejected: `views/orders.js` already implements the debounce and
   per-keystroke request cancellation the picker needs, and both are now verified working
@@ -1013,6 +1115,7 @@ parser becomes one feature inside it, not the whole tool.
 | 14 | Unsaved-changes guard on ‹ Orders; one guard for every exit | done, **unverified in a browser** | app 0.7.0 |
 | 15 | Exit warning shown in the header; update banner's Reload guarded | done, **unverified in a browser** | app 0.8.0 |
 | 16 | Save bar lifted clear of the update banner, by its measured height | done, **unverified in a browser** | app 0.9.0 |
+| 17 | CartMix logo as every icon and on the login screen; password Show/Hide | done, **unverified on a device** | app 0.10.0 |
 
 **Steps 1-7 are the original plan, and all seven are built and verified** — the API layer
 by real requests against staging, the app in a browser as an installed PWA.
@@ -1021,9 +1124,9 @@ by real requests against staging, the app in a browser as an installed PWA.
 in a browser. The specifics are under Verified; the few behaviours those checks did not
 reach are under Unverified / open. None of rows 8-11 is on live yet.
 
-**Rows 12-16 are the unverified edge.** 12 needs 7.1 uploaded before it can be exercised
-at all; 13-16 are app-only and need only a browser. All pass locally — `php -l`, the
-PHP quantity rule run under a real PHP with both stock filters, twelve app suites —
+**Rows 12-17 are the unverified edge.** 12 needs 7.1 uploaded before it can be exercised
+at all; 13-17 are app-only and need only a browser. All pass locally — `php -l`, the
+PHP quantity rule run under a real PHP with both stock filters, fourteen app suites —
 which is evidence the code is coherent, not that it works against WooCommerce.
 
 **The API layer is complete and signed off.** Step 3 at 5.6/5.7 with 3d/3e verified at
@@ -1398,6 +1501,15 @@ shipping fix — **confirmed on staging and in a browser**. `/ping` reports `7.0
   of both. `getBoundingClientRect()` on a `position: fixed` element and
   `ResizeObserver` are both long-standing in every browser this targets, but iOS Safari
   is where a mismatch would show.
+- **The new icons are unseen on a device** (app 0.10.0). Checked here only as rendered
+  pixels: the maskable icon cut to a circle and shrunk to home-screen sizes. **At 48px
+  the "CARTMIX" wordmark blurs into a yellow band**; the cart's shape, its teal and the
+  orange wheels still read, and at 72px "CART" and "MIX" are just legible. That is the
+  limit of a horizontal logo with a wordmark, not of the scaling: if the icon reads
+  poorly on real home screens, the fix is a cart-only mark from whoever owns the logo,
+  not a different crop of this one. Also check: Android's launcher picks the maskable
+  icon, iOS the apple-touch-icon (re-add to the home screen to see a change — iOS caches
+  it), and an existing install shows the new icon after the `v14` shell update.
 - **The browser and hardware back buttons leave the app with no warning.** By decision
   — see the exit-guard entry under Product decisions — not an oversight.
 - **How many orders carry a stale shipping line is NOT KNOWN, and cannot be answered from
@@ -1536,6 +1648,8 @@ shipping fix — **confirmed on staging and in a browser**. `/ping` reports `7.0
     observed from here.
   - **That Defender is deactivated**, and that it was what truncated the
     application-password display.
+  - **That the "Decimal qty step fix (order edit)" snippet exists and is active on both
+    sites.** Reported, not observed from here.
   - **That the custom-status snippet exists in Code Snippets and is active**, and that
     the shipping snippet was deleted from it in 4.9. The deletion especially: the
     plugin's copy of the table is in the repo, but nothing in the repo can show whether

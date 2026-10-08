@@ -28,7 +28,7 @@
  * the OLD index.html and therefore the old hashed bundle, indefinitely. There
  * is no automatic invalidation to fall back on.
  */
-const SHELL_VERSION = 'v13';
+const SHELL_VERSION = 'v14';
 
 const SHELL_CACHE = `orderops-shell-${SHELL_VERSION}`;
 
@@ -46,6 +46,10 @@ const PRECACHE_URLS = [
   '/icons/icon-512.png',
   '/icons/icon-512-maskable.png',
   '/icons/apple-touch-icon.png',
+  '/icons/favicon-32.png',
+  // The login screen's logo. Precached so a cold, offline launch to the
+  // sign-in screen paints it rather than a broken image.
+  '/icons/logo-login.png',
 ];
 
 /** Same-origin prefixes that are part of the shell and may be cached. */

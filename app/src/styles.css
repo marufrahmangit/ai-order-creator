@@ -97,14 +97,26 @@ button {
   padding: max(32px, env(safe-area-inset-top)) 20px 24px;
 }
 
+/* The store's logo, above the app's name. Drawn for white, and the sign-in
+   card is white, so it sits on the card with no plate around it. */
+.login-logo {
+  display: block;
+  width: 200px;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto 12px;
+}
+
 .login-title {
   margin: 8px 0 4px;
   font-size: 26px;
+  text-align: center;
 }
 
 .login-hint {
   margin: 0 0 20px;
   color: var(--ink-muted);
+  text-align: center;
 }
 
 .login-form {
@@ -133,6 +145,25 @@ button {
   border-radius: var(--radius);
   background: #fff;
   color: var(--ink);
+}
+
+/* The password field and its Show/Hide button, side by side. The button sits
+   OUTSIDE the field's border so it cannot be read as part of what was typed,
+   and at full tap height at the right-hand end, under a right thumb. */
+.password-row {
+  display: flex;
+  gap: 8px;
+}
+
+.password-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.password-toggle {
+  flex: 0 0 auto;
+  min-width: 64px;
+  font-weight: 600;
 }
 
 .field input:focus-visible,
