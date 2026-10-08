@@ -37,10 +37,13 @@ const server = http.createServer((req, res) => {
   // fetchOrders() hits /orders, so this is the path the abort tests race.
   // Slow enough that the client always aborts first.
   if (url.pathname.endsWith('/orders')) {
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ orders: [], total: 0, total_pages: 1, page: 1 }))
     }, 2000)
+    // The client aborts long before this fires. Left pending, the timer
+    // outlives the test and keeps a handle open at exit.
+    res.on('close', () => clearTimeout(timer))
     return
   }
 
@@ -276,7 +279,14 @@ function check(name, actual, expected) {
   )
 }
 
-server.close()
+// Tear down every handle before the process ends. server.close() alone stops
+// accepting but leaves open connections - fetch's keep-alive sockets and the
+// deliberately unfinished /stalledbody response - so they are destroyed
+// explicitly, and the close is awaited rather than fired and forgotten.
+// Calling process.exit() with those sockets mid-close crashed Node 24 on
+// Windows with a libuv UV_HANDLE_CLOSING assertion after every check passed.
+server.closeAllConnections()
+await new Promise((resolve) => server.close(resolve))
 fs.rmSync(WORK, { recursive: true, force: true })
 
 let failed = 0
@@ -291,4 +301,6 @@ for (const result of results) {
 }
 
 console.log(`\n${results.length - failed}/${results.length} passed`)
-process.exit(failed === 0 ? 0 : 1)
+// exitCode rather than exit(): the process ends once the event loop drains,
+// so a handle that is still open shows up as a hang instead of a crash.
+process.exitCode = failed === 0 ? 0 : 1

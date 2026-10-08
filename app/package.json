@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node test/api-abort.test.mjs && node test/picker-logic.test.mjs && node test/sw-routing.test.mjs && node test/phone-parity.test.mjs && node test/contrast.test.mjs && node test/view-smoke.test.mjs && node test/last-order-lookup.test.mjs && node test/reorder.test.mjs && node test/shipping-preview.test.mjs && node test/save-bar.test.mjs"
+    "test": "node test/run-all.mjs"
   },
   "devDependencies": {
     "vite": "^7.0.0"
