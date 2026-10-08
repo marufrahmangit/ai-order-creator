@@ -4,24 +4,26 @@ Working brief for resuming this project cold. Present state only — git log is 
 
 Plugin header: **Order Ops v7.1**, Updated 2026-10-08. App **0.11.0**, named **CartMix Shop
 Manager** to staff — see "Names" under Product decisions; the plugin is still "Order Ops".
-**Live runs 7.1. Staging was last recorded at 7.0.** Live's REST layer has now been
-called: `POST /parse` was verified there at 7.1 (see Verified). Nothing else in 6.7-7.1
-has been exercised on live yet.
+**Both sites run 7.1.** On staging, 7.1's decimal quantities are verified, through the API
+and in a browser. On live, only `POST /parse` has been verified (see Verified); nothing
+else in 6.7-7.1 has been exercised there yet.
 
 **Build steps 1 through 11 are built AND verified on staging** — the API layer by real
 requests, the app in a browser, including as an installed standalone PWA. Steps 8-11
 came after the original seven-step plan and were verified at 6.8 and 7.0; what those
 checks did NOT cover is listed under Unverified / open.
 
-**Steps 12-17 — decimal quantities (7.1 / app 0.6.0), New order from the form (app
-0.6.0), the unsaved-changes guard on every exit from the form (app 0.7.0), that warning
-made visible plus the update banner's Reload guarded (app 0.8.0), Save kept clear of
-the update banner (app 0.9.0), and the CartMix logo as every icon plus a password
-Show/Hide on the login screen (app 0.10.0) — are built and pass every local check, but
-have not run on a server or in a browser.** 7.1 is a correctness fix, not a nicety: the *Decimal Product Quantity for
-WooCommerce* plugin is now active on BOTH sites, and every plugin up to 7.0 `(int)`-casts
-quantity, so **any fractional quantity sent through the app on either site today is
-silently saved as a whole number.** Live now has 7.1; staging, as last recorded, does not.
+**Step 12 — decimal quantities (7.1 / app 0.6.0) — is verified on staging**, by real
+requests and in a browser. It was a correctness fix: the *Decimal Product Quantity for
+WooCommerce* plugin is active on BOTH sites, and every plugin up to 7.0 `(int)`-cast
+quantity, so a fractional quantity was silently saved as a whole number. Both sites now
+run 7.1.
+
+**Steps 13-17 — New order from the form (app 0.6.0), the unsaved-changes guard on every
+exit from the form (app 0.7.0), that warning made visible plus the update banner's
+Reload guarded (app 0.8.0), Save kept clear of the update banner (app 0.9.0), and the
+CartMix logo as every icon plus a password Show/Hide on the login screen (app 0.10.0) —
+are app-only, pass every local check, and have not been seen in a browser.**
 
 **Live jumped from 6.6 to 7.1 in one upload**, taking 6.7 (`GET /customers/last-order`),
 6.8 (its correction), 6.9 (`shipping_rates` in `/meta`), 7.0 (the shipping
@@ -44,7 +46,7 @@ list below.
 say what exists, what is proven, and what is merely written down.**
 
 **There is no feature work queued.** Everything in the Build steps table is built and
-passes its checks locally; steps 1-11 are verified on staging, 12-17 are not yet. Two of
+passes its checks locally; steps 1-12 are verified on staging, 13-17 are not yet. Two of
 those checks are in the repo and one is not:
 
 - **`npm test` in `app/`** — fourteen suites, 421 assertions. In the repo. Run this first.
@@ -62,11 +64,9 @@ None of them needs a server.
 **The next work is deployment and verification, and it is operational, not code.** In
 order, because each step depends on the one before:
 
-1. Upload plugin **7.1** to STAGING and confirm `GET /aioc/v1/ping` reports `7.1`. A
-   stale version here causes misleading 404s on new routes, so do not skip the check.
-2. Verify 7.1 and app 0.7.0 against staging from `npm run dev` — the checks are listed
-   under Unverified / open. **The plugin must be uploaded before the app is used for
-   this**: app 0.6.0+ against 7.0 still has every fractional quantity `(int)`-cast.
+1. ~~Upload 7.1 to staging~~ — **done**; decimal quantities verified there.
+2. Check the app-only steps 13-17 against staging from `npm run dev` — the specifics
+   are under Unverified / open.
 3. ~~Upload 7.1 to live~~ — **done**; live runs 7.1, and `/parse` is verified there.
    Confirm `/ping` reports `7.1` when next on live, since only `/parse` has been called.
 4. Find and re-save any live order with an empty billing state and a shipping line —
@@ -79,7 +79,7 @@ order, because each step depends on the one before:
    it. Confirm that before assuming either way: empty is the safe state, and it is also
    what would make a first attempt from the app fail with no CORS headers.
 
-Steps 1, 2 and 4 can be done today. Steps 5-7 need the subdomain.
+Steps 2 and 4 can be done today. Steps 5-7 need the subdomain.
 
 **Two traps when testing the production build on localhost, both of which have already
 cost a debugging round:**
@@ -128,8 +128,7 @@ parser becomes one feature inside it, not the whole tool.
   `POST /parse`, verified at 7.1; everything else recorded here was done against
   staging. `ai_app_origin` is expected to be empty on live, so no browser can reach the
   API there — the `/parse` checks did not need one.
-- Staging: staging.cartmixbd.com — **plugin 7.0 as last recorded**, where everything is
-  tested first
+- Staging: staging.cartmixbd.com — **plugin 7.1**, where everything is tested first
 - WooCommerce 11.0.1, HPOS enabled, table prefix `wp_`, hosted cPanel/MySQL
 - Products are post status `private`; the storefront is unused, orders are taken
   internally. Product queries must include publish AND private.
@@ -1216,7 +1215,7 @@ parser becomes one feature inside it, not the whole tool.
 | 9 | Reorder — from the last-order card and from each list row | done, **verified in a browser** | app 0.3.0 |
 | 10 | Expected shipping on an unsaved order | done, **verified on staging and in a browser** at 7.0 | 6.9 / app 0.4.0 |
 | 11 | Shipping cleared with the district; save bar fixed | done, **verified on staging and in a browser** at 7.0 | 7.0 / app 0.5.0 |
-| 12 | Decimal quantities to 2dp; quantity as an editable field | done, **not yet on staging, unverified in a browser** | 7.1 / app 0.6.0 |
+| 12 | Decimal quantities to 2dp; quantity as an editable field | done, **verified on staging and in a browser** at 7.1 | 7.1 / app 0.6.0 |
 | 13 | New order from the order form | done, **unverified in a browser** | app 0.6.0 |
 | 14 | Unsaved-changes guard on ‹ Orders; one guard for every exit | done, **unverified in a browser** | app 0.7.0 |
 | 15 | Exit warning shown in the header; update banner's Reload guarded | done, **unverified in a browser** | app 0.8.0 |
@@ -1231,10 +1230,9 @@ in a browser. The specifics are under Verified; the few behaviours those checks 
 reach are under Unverified / open. Rows 8-11 are installed on live with 7.1 but
 unverified there; only `/parse` has been called on live.
 
-**Rows 12-17 are the unverified edge.** 12 needs 7.1 uploaded before it can be exercised
-at all; 13-17 are app-only and need only a browser. All pass locally — `php -l`, the
-PHP quantity rule run under a real PHP with both stock filters, fourteen app suites —
-which is evidence the code is coherent, not that it works against WooCommerce.
+**Row 12 is verified on staging at 7.1.** **Rows 13-17 are the unverified edge** — all
+app-only, needing only a browser. They pass locally, fourteen app suites, which is
+evidence the code is coherent, not that it works on a device.
 
 **The API layer is complete and signed off.** Step 3 at 5.6/5.7 with 3d/3e verified at
 6.2/6.3, step 4a at 5.8, 4b at 5.9, 4c and 4d at 6.1 — every endpoint confirmed by real
@@ -1520,6 +1518,15 @@ plugin registers simply appears.
   (`admin=0`). Not conclusively proven, so it is recorded under Environment as a
   troubleshooting step rather than as a known mechanism.
 
+Decimal quantities on **staging** at **7.1**, through the API and in a browser:
+
+- A quantity of **1.5** saved and round-tripped as the string **`"1.5"`** — so the decimal
+  plugin's `woocommerce_stock_amount` filter lets it through `wc_stock_amount()`, and
+  `ai_rest_quantity()` reports it trimmed.
+- **3.567** was stored as **3.57**, with the warning saying so.
+- In the browser: the quantity field shows **"1.5", not "1.50"**; the line total follows a
+  typed **2.25**; the **− button is disabled at 1**; and the order list reads **"1.5 items"**.
+
 `POST /parse` on **LIVE** at **7.1** — the first requests verified against live rather than
 staging, so live's 7.1 parser is confirmed working end to end:
 
@@ -1582,22 +1589,17 @@ shipping fix — **confirmed on staging and in a browser**. `/ping` reports `7.0
   `wc_get_product_id_by_sku()`, the parent-first search never reaching a partial one.
   Parent/simple SKU partial matching IS verified.
 - **On live (7.1), only `POST /parse` has been exercised.** The 6.7-7.1 routes and fixes
-  are installed there but unverified: last-order lookup, `shipping_rates`, the 7.0
-  shipping fix and decimal quantities. Staging, last recorded at 7.0, has not run 7.1
-  at all.
-- **Decimal quantities (7.1 / app 0.6.0) are unexercised against WooCommerce.** Verified
-  only by running `ai_rest_line_quantity()` under a real PHP with both filters stubbed,
-  and by the app suites. On staging, check:
-  - Saving 1.5 stores 1.5 — in the response, AND in wp-admin's order screen, which is
-    where the decimal plugin's own handling shows. 3.567 comes back as 3.57 with a
-    warning; 0 and a negative come back as 1 with a warning.
-  - A fractional quantity entered in wp-admin loads into the app unchanged, with Price
-    as total ÷ quantity, and survives an app save of that order's items.
-  - The list shows "2.5 items" for 1.5 + 1, and `item_count` is the string `"2.5"`.
-  - **What the decimal plugin's filter actually returns is assumed, not read.** The
-    code relies on it returning a float-safe number for "1.5"; its source was not
-    inspected. If it rounds to its own precision, or returns a string, ours still
-    applies 2dp on top — but confirm by observation rather than assuming.
+  are installed there but unverified on live: last-order lookup, `shipping_rates`, the
+  7.0 shipping fix and decimal quantities. All four are verified on staging.
+- **What the decimal-quantity checks on staging did not reach** (the verified behaviour
+  is under Verified):
+  - wp-admin's own order screen showing the 1.5, and a fractional quantity entered IN
+    wp-admin loading into the app unchanged — Price as total ÷ quantity — and surviving
+    an app save of that order's items.
+  - 0 and a negative quantity coming back as 1 with a warning.
+  - **The decimal plugin's filter is now observed rather than assumed for "1.5"** — it
+    survived as 1.5 — but its source has still not been read, so its handling of other
+    precisions is inferred from ours applying 2dp on top.
   - **`add_product()`'s own subtotal for an UNPRICED line** — the add-by-id stopgap,
     which sends no total — calls `wc_get_price_excluding_tax()` with the fractional
     quantity. Read as float-safe in WooCommerce 11, not exercised. Every priced line
@@ -1771,7 +1773,7 @@ shipping fix — **confirmed on staging and in a browser**. `/ping` reports `7.0
 - **Recorded here but NOT verifiable from this repo.** Everything below is written down
   because it was observed once; none of it can be re-checked by reading the code, so
   treat it as a claim with a date on it rather than a fact:
-  - **Which plugin version each site runs** (live 7.1, staging 7.0 as last recorded). Only
+  - **Which plugin version each site runs** (live 7.1, staging 7.1). Only
     `GET /aioc/v1/ping` can answer this. Check it before trusting any other statement
     about the servers.
   - **`ai_app_origin`'s value on either site** — `http://localhost:5173` on staging,
