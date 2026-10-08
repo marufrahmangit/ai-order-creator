@@ -9,11 +9,19 @@
  *   - "Open #N" on the last-order card.
  *   - "+ New order".
  *
+ *   - The update banner's Reload (app 0.8.0), which discards the page. Same
+ *     guard, same armed slot, via src/exit-guard.js.
+ *
  * Deliberately NOT guarded, asserted so that stays a decision:
  *   - Trash. It has its own confirmation, and the edits belong to an order
  *     that is going away.
  *
  * A clean form goes straight out through all of them.
+ *
+ * WHERE the warning appears is asserted too. It used to go in the status line
+ * at the top of the form, which on a long form has scrolled out of view, so
+ * the guard read as a dead button. The form's warning is now inside the
+ * sticky header; Reload's is in the banner's own text, where that tap was.
  *
  * Run with `npm test` from app/.
  */
@@ -66,6 +74,8 @@ const { load, cleanup } = loadable(VIEW_MODULES)
 const { loadMeta } = await load('meta.js')
 await loadMeta()
 const { OrderFormView } = await load('views/order-form.js')
+const { showUpdateBanner } = await load('pwa.js')
+const guard = await load('exit-guard.js')
 
 const results = []
 const check = (name, actual, expected) =>
@@ -73,7 +83,10 @@ const check = (name, actual, expected) =>
 
 const byText = (view, text) => findNode(view, (n) => n.textContent === text)
 const byClass = (view, cls) => findNode(view, (n) => String(n.className).split(' ').includes(cls))
-const statusText = (view) => byClass(view, 'status-line')?.textContent || ''
+/** The form's unsaved-changes warning, which lives in the sticky header. */
+const warningOf = (view) => byClass(view, 'exit-warning')
+const statusText = (view) => byClass(view, 'exit-warning-text')?.textContent || ''
+const keepOf = (view) => byText(view, 'Keep editing')
 const backOf = (view) => byText(view, '‹ Orders')
 const newOf = (view) => byText(view, '+ New order')
 const openOf = (view) => byClass(view, 'last-order-open')
@@ -191,6 +204,108 @@ function edit(view, value = 'Someone else') {
   check('it warns afresh', /Tap ‹ Orders again/.test(statusText(view)), true)
 }
 
+// ---- the warning is where the user can see it ------------------------------
+{
+  const { view, calls } = await form()
+  check('no warning is showing on a fresh form', warningOf(view)?.hidden, true)
+
+  edit(view)
+  fire(backOf(view), 'click')
+
+  const header = findNode(view, (n) => n.tagName === 'HEADER')
+  check('the warning is showing', warningOf(view)?.hidden, false)
+  check('and it is INSIDE the sticky header, so it is on screen however far down the form is scrolled',
+    !!findNode(header, (n) => n === warningOf(view)), true)
+  check('the status line, which scrolls away, is not used for it',
+    /Unsaved/.test(byClass(view, 'status-line')?.textContent || ''), false)
+  check('it is announced, not just painted', warningOf(view)?.attributes?.role, 'alert')
+
+  fire(keepOf(view), 'click')
+  check('Keep editing takes the warning down', warningOf(view)?.hidden, true)
+  check('and stays on the form', calls.close, 0)
+
+  fire(backOf(view), 'click')
+  check('after Keep editing, ‹ Orders warns again rather than going', calls.close, 0)
+  check('with the warning back up', warningOf(view)?.hidden, false)
+}
+{
+  const { view } = await form()
+  edit(view)
+  fire(backOf(view), 'click')
+  fire(saveOf(view), 'click')
+  await settle(200)
+  check('saving takes the warning down', warningOf(view)?.hidden, true)
+}
+
+// ---- the update banner's Reload --------------------------------------------
+const bannerOf = () => findNode(document.body, (n) => n.className === 'pwa-banner')
+const bannerText = () => findNode(bannerOf(), (n) => n.className === 'pwa-banner-text')?.textContent
+const reloadOf = () => findNode(bannerOf(), (n) => n.textContent === 'Reload')
+const dismissOf = () => findNode(bannerOf(), (n) => n.textContent === 'Dismiss')
+
+{
+  guard.clearUnsavedCheck()
+  let reloads = 0
+  showUpdateBanner(() => { reloads++ })
+  fire(reloadOf(), 'click')
+  check('Reload with no form mounted reloads straight away', reloads, 1)
+  check('and the banner goes', bannerOf(), null)
+}
+{
+  const { view } = await form()
+  let reloads = 0
+  showUpdateBanner(() => { reloads++ })
+  fire(reloadOf(), 'click')
+  check('Reload over a CLEAN form reloads straight away', reloads, 1)
+  void view
+}
+{
+  const { view } = await form()
+  edit(view)
+  let reloads = 0
+  showUpdateBanner(() => { reloads++ })
+
+  fire(reloadOf(), 'click')
+  check('Reload over a dirty form: the first tap only warns', reloads, 0)
+  check('the banner stays up', !!bannerOf(), true)
+  check('and the warning is in the banner, where the tap was',
+    bannerText(), 'Unsaved changes in this order. Tap Reload again to discard them and update.')
+
+  fire(reloadOf(), 'click')
+  check('the second tap reloads', reloads, 1)
+}
+{
+  const { view, calls } = await form()
+  edit(view)
+  let reloads = 0
+  showUpdateBanner(() => { reloads++ })
+
+  fire(reloadOf(), 'click')
+  fire(backOf(view), 'click')
+  check('arming Reload does not wave ‹ Orders through', calls.close, 0)
+  check('and the banner takes its warning down when another exit is armed', bannerText(), 'An update is ready.')
+
+  fire(reloadOf(), 'click')
+  check('arming ‹ Orders disarmed Reload', reloads, 0)
+  check('the form takes its warning down in turn', warningOf(view)?.hidden, true)
+
+  fire(dismissOf(), 'click')
+  showUpdateBanner(() => { reloads++ })
+  fire(reloadOf(), 'click')
+  check('a dismissed banner does not leave a later Reload armed', reloads, 0)
+}
+{
+  // Leaving a dirty form for the list must stop the guard asking about it.
+  // main.js does that in beginScreen(); the module half is asserted here.
+  const { view } = await form()
+  edit(view)
+  guard.clearUnsavedCheck()
+  let reloads = 0
+  showUpdateBanner(() => { reloads++ })
+  fire(reloadOf(), 'click')
+  check('once the form is left behind, Reload no longer warns about it', reloads, 1)
+}
+
 // ---- Trash: deliberately not guarded ---------------------------------------
 {
   const { view, calls } = await form()
@@ -210,6 +325,22 @@ function edit(view, value = 'Someone else') {
   const formSource = fs.readFileSync(path.join(SRC, 'views', 'order-form.js'), 'utf8')
   check('the header link goes through the guard, not straight to onClose',
     /text: '‹ Orders', onClick: requestClose/.test(formSource), true)
+
+  // The strip is on screen because the header is sticky, and it does not move
+  // the page because it overlays rather than growing the header. Both are
+  // stylesheet facts, so they are read from the stylesheet.
+  const css = fs.readFileSync(path.join(SRC, 'styles.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+  const rule = (selector) => {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return css.match(new RegExp(`(?:^|\\})\\s*${escaped}\\s*\\{([^}]*)\\}`))?.[1] || ''
+  }
+  check('the header the warning lives in is sticky', /position:\s*sticky/.test(rule('.app-header')), true)
+  check('the warning overlays the content rather than making the header taller',
+    /position:\s*absolute/.test(rule('.exit-warning')), true)
+
+  const main = fs.readFileSync(path.join(SRC, 'main.js'), 'utf8')
+  check('every navigation clears the guard, so a form left behind cannot make Reload warn',
+    /function beginScreen\(key\) \{[\s\S]{0,300}?clearUnsavedCheck\(\)/.test(main), true)
 
   // A beforeunload prompt fires on reload and tab close too, with a generic
   // message no browser lets the page word. Decided against; see PROJECT-STATE.

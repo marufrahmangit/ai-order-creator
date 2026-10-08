@@ -112,6 +112,16 @@ check('body ink on a card', INK, SURFACE)
 check('muted ink on a card', token('ink-muted'), SURFACE)
 check('danger text on a card', token('danger'), SURFACE)
 
+// ---- the unsaved-changes warning in the header ---------------------------
+// It is the one thing on screen that says a tap did not do what it looked like
+// it should, so it has to be readable at a glance.
+check('exit warning text on its strip',
+  colour(declared('.exit-warning', 'color')), colour(declared('.exit-warning', 'background')))
+check('exit warning strip stands out from the dark header',
+  colour(declared('.exit-warning', 'background')), ACCENT, 3)
+check('Keep editing label on its button',
+  colour(declared('.exit-warning-keep', 'color')), colour(declared('.exit-warning-keep', 'background')))
+
 // ---- every status badge, on its own background ---------------------------
 for (const [, name, bg, fg] of CSS.matchAll(
   /\.badge-([\w-]+)(?:,\s*\n\.badge-[\w-]+)*\s*\{\s*background:\s*(#[0-9a-fA-F]{6});\s*color:\s*([^;]+);/g,

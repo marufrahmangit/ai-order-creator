@@ -23,8 +23,10 @@ export function makeNode(tag) {
     disabled: false, hidden: false, open: false, title: '', placeholder: '',
     href: '', rows: 0, min: 0, step: 0, required: false, spellcheck: false,
     options: [],
+    parentNode: null,
     append(...kids) {
       for (const kid of kids) {
+        if (kid && typeof kid === 'object') kid.parentNode = this
         this.children.push(kid)
         if (kid && typeof kid === 'object' && 'tagName' in kid && this.tagName === 'SELECT') {
           this.options.push(kid)
@@ -35,7 +37,13 @@ export function makeNode(tag) {
     removeEventListener() {},
     setAttribute(name, value) { this.attributes[name] = String(value) },
     replaceChildren() { this.children = []; this.options = [] },
-    remove() {}, focus() {}, select() {},
+    // Really detaches, so a test can tell whether a banner or sheet is still up.
+    remove() {
+      if (!this.parentNode) return
+      this.parentNode.children = this.parentNode.children.filter((kid) => kid !== this)
+      this.parentNode = null
+    },
+    focus() {}, select() {},
     querySelector: () => null,
     classList: { add() {}, remove() {}, contains: () => false },
   }
@@ -109,7 +117,7 @@ export function loadable(relPaths) {
 /** The modules every view test needs. */
 export const VIEW_MODULES = [
   'dom.js', 'auth.js', 'api.js', 'meta.js', 'format.js', 'phone.js', 'pwa.js',
-  'reorder.js', 'quantity.js',
+  'reorder.js', 'quantity.js', 'exit-guard.js',
   'views/login.js', 'views/orders.js', 'views/order-form.js',
   'views/product-picker.js', 'views/last-order.js',
 ]

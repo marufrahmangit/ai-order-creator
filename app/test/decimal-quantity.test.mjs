@@ -260,7 +260,7 @@ async function saveBody(view) {
   fire(newOf(view), 'click')
   check('with unsaved changes, the first tap only warns', opened, 0)
   check('and says what would be lost',
-    /Unsaved changes here\. Tap New order again/.test(byClass(view, 'status-line')?.textContent || ''), true)
+    /Unsaved changes here\. Tap New order again/.test(byClass(view, 'exit-warning-text')?.textContent || ''), true)
 
   fire(newOf(view), 'click')
   check('the second tap goes ahead', opened, 1)

@@ -9,6 +9,7 @@
  */
 
 import { el } from './dom.js'
+import { requestExit, disarm } from './exit-guard.js'
 
 const DISMISSED_INSTALL = 'orderops.install.dismissed'
 const DISMISSED_IOS_HINT = 'orderops.ioshint.dismissed'
@@ -56,6 +57,11 @@ let current = null
  *
  * While it is up, body carries a class so the order list's floating action
  * button lifts clear of it instead of being covered.
+ *
+ * onAction may return false to keep the banner up - the update banner does,
+ * when Reload only warned. The returned handle lets the caller reword it.
+ *
+ * @returns {{setText: (text: string) => void}}
  */
 function showBanner({ text, actionLabel, onAction, onDismiss }) {
   dismissBanner()
@@ -65,8 +71,10 @@ function showBanner({ text, actionLabel, onAction, onDismiss }) {
     onDismiss?.()
   }
 
+  const textNode = el('p', { class: 'pwa-banner-text', text })
+
   const banner = el('div', { class: 'pwa-banner', role: 'status' }, [
-    el('p', { class: 'pwa-banner-text', text }),
+    textNode,
     el('div', { class: 'pwa-banner-actions' }, [
       actionLabel
         ? el('button', {
@@ -74,8 +82,7 @@ function showBanner({ text, actionLabel, onAction, onDismiss }) {
             class: 'button primary pwa-banner-action',
             text: actionLabel,
             onClick: () => {
-              dismissBanner()
-              onAction?.()
+              if (onAction?.() !== false) dismissBanner()
             },
           })
         : null,
@@ -92,12 +99,47 @@ function showBanner({ text, actionLabel, onAction, onDismiss }) {
   current = banner
   document.body.append(banner)
   document.body.classList.add('has-pwa-banner')
+
+  return {
+    setText: (next) => { textNode.textContent = next },
+  }
 }
 
 function dismissBanner() {
   current?.remove()
   current = null
   document.body.classList.remove('has-pwa-banner')
+}
+
+const UPDATE_TEXT = 'An update is ready.'
+const UPDATE_WARNING = 'Unsaved changes in this order. Tap Reload again to discard them and update.'
+
+/**
+ * The "update is ready" banner. Exported for app/test/exit-guards.test.mjs.
+ *
+ * Reload discards the page, so it is an exit like any other and goes through
+ * the same guard as "‹ Orders": with unsaved work in the order form, the first
+ * tap only warns and the second reloads. The warning replaces the BANNER'S OWN
+ * TEXT, because the banner is where the tap was - a warning in the form's
+ * header would be at the opposite end of the screen.
+ *
+ * The banner asks the guard rather than the form being told about the banner:
+ * pwa.js is app-wide and knows nothing about views, and the form already
+ * registers its dirty check with exit-guard.js. Dismissing the banner takes an
+ * armed Reload down with it, so a later banner cannot inherit the warning.
+ *
+ * @param {() => void} reload
+ */
+export function showUpdateBanner(reload) {
+  const banner = showBanner({
+    text: UPDATE_TEXT,
+    actionLabel: 'Reload',
+    onAction: () => requestExit('reload', reload, {
+      warn: () => banner.setText(UPDATE_WARNING),
+      reset: () => banner.setText(UPDATE_TEXT),
+    }),
+    onDismiss: () => disarm('reload'),
+  })
 }
 
 /**
@@ -126,19 +168,15 @@ function registerServiceWorker() {
       // nothing for the user to decide, so no prompt.
       if (!navigator.serviceWorker.controller) return
 
-      showBanner({
-        text: 'An update is ready.',
-        actionLabel: 'Reload',
-        onAction: () => {
-          // Never reload without being asked: it would discard a half-filled
-          // order form. The worker waits until the user says so.
-          navigator.serviceWorker.addEventListener(
-            'controllerchange',
-            () => window.location.reload(),
-            { once: true },
-          )
-          registration.waiting?.postMessage({ type: 'SKIP_WAITING' })
-        },
+      showUpdateBanner(() => {
+        // Never reload without being asked: it would discard a half-filled
+        // order form. The worker waits until the user says so.
+        navigator.serviceWorker.addEventListener(
+          'controllerchange',
+          () => window.location.reload(),
+          { once: true },
+        )
+        registration.waiting?.postMessage({ type: 'SKIP_WAITING' })
       })
     }
 

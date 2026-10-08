@@ -2,7 +2,7 @@
 
 Working brief for resuming this project cold. Present state only — git log is the history.
 
-Plugin header: **Order Ops v7.1**, Updated 2026-10-08. App **0.7.0**.
+Plugin header: **Order Ops v7.1**, Updated 2026-10-08. App **0.8.0**.
 **Staging runs 7.0. Live runs 6.6.** Neither has 7.1.
 
 **Build steps 1 through 11 are built AND verified on staging** — the API layer by real
@@ -10,8 +10,9 @@ requests, the app in a browser, including as an installed standalone PWA. Steps 
 came after the original seven-step plan and were verified at 6.8 and 7.0; what those
 checks did NOT cover is listed under Unverified / open.
 
-**Steps 12-14 — decimal quantities (7.1 / app 0.6.0), New order from the form (app
-0.6.0) and the unsaved-changes guard on every exit from the form (app 0.7.0) — are built
+**Steps 12-15 — decimal quantities (7.1 / app 0.6.0), New order from the form (app
+0.6.0), the unsaved-changes guard on every exit from the form (app 0.7.0), and that
+warning made visible plus the update banner's Reload guarded (app 0.8.0) — are built
 and pass every local check, but have not run on a server or in a browser.** 7.1 is a correctness fix, not a nicety: the *Decimal Product Quantity for
 WooCommerce* plugin is now active on BOTH sites, and every plugin up to 7.0 `(int)`-casts
 quantity, so **any fractional quantity sent through the app on either site today is
@@ -39,10 +40,10 @@ list below.
 say what exists, what is proven, and what is merely written down.**
 
 **There is no feature work queued.** Everything in the Build steps table is built and
-passes its checks locally; steps 1-11 are verified on staging, 12-14 are not yet. Two of
+passes its checks locally; steps 1-11 are verified on staging, 12-15 are not yet. Two of
 those checks are in the repo and one is not:
 
-- **`npm test` in `app/`** — twelve suites, 312 assertions. In the repo. Run this first.
+- **`npm test` in `app/`** — twelve suites, 341 assertions. In the repo. Run this first.
 - **`php -l` over all 27 PHP files** — needs the portable PHP described under
   Conventions, which is not in the repo either but takes one download to set up.
 - **A contract check** that greps the real PHP and JS source and asserts every field
@@ -242,7 +243,7 @@ parser becomes one feature inside it, not the whole tool.
     requiring it without `ABSPATH` defined exits silently with status 0.
   - The Groq path still cannot be exercised locally: it needs network and a key. Only
     the deterministic pipeline is reachable, which is where the parsing logic lives.
-- App tests: `npm test` in `app/`. No dependencies, no browser, **twelve suites, 312
+- App tests: `npm test` in `app/`. No dependencies, no browser, **twelve suites, 341
   assertions**. Some read the real source and lift part of it, so they cannot drift from
   the code silently; the rest run a view against a crude DOM shim, which is the only
   thing in this project that executes one at all.
@@ -321,15 +322,18 @@ parser becomes one feature inside it, not the whole tool.
     `Math.max(1, … quantity)` clamp survives in `src/`. Confirmed to fail when the old
     clamp, the old Price blur or an unguarded New order is put back.
   - `test/exit-guards.test.mjs` — every way out of a dirty order form. For each guarded
-    exit (‹ Orders, Open #N, + New order): a clean form goes straight out, a dirty one
-    warns on the first tap and goes on the second. Also that one exit's warning does not
-    license another, that a save clears the warning, that Trash goes through on its own
-    confirmation, and that no `beforeunload` handler exists in `src/`. Confirmed to fail
-    when the header link is pointed back at `onClose`, and when the reset on save is
-    removed.
+    exit (‹ Orders, Open #N, + New order, the update banner's Reload): a clean form goes
+    straight out, a dirty one warns on the first tap and goes on the second. Also WHERE
+    the warning shows (inside the sticky header, not the status line; Reload's in the
+    banner's own text), Keep editing, that one exit's warning does not license another
+    and takes the other's warning down, that a save or a dismissed banner disarms, that
+    `beginScreen()` clears the guard, that Trash goes through on its own confirmation,
+    and that no `beforeunload` handler exists in `src/`. Each of those was confirmed to
+    fail when the code it covers is reverted.
   - The DOM shim and module loader the view tests share live in `test/dom-shim.mjs`.
     A new module under `src/` must be listed in its `VIEW_MODULES` or the view suites
-    fail to resolve it.
+    fail to resolve it. Its `remove()` really detaches a node, so a test can tell whether
+    a banner or sheet is still up.
 - **`app/src/phone.js` is the one piece of logic deliberately duplicated between PHP and
   JS**, and it exists only to decide whether a half-typed number is worth a last-order
   request. The server re-normalizes and answers 400 if it disagrees, so the client copy
@@ -339,7 +343,8 @@ parser becomes one feature inside it, not the whole tool.
   where auth, CORS, error shape and abort handling live. `auth.js` owns the stored
   credential, `meta.js` the session-cached `/meta`, `format.js` money and dates,
   `dom.js` node building, `views/` one file per screen. Views never call `fetch`
-  directly.
+  directly. `exit-guard.js` is the app-wide unsaved-changes guard — see Product
+  decisions — and `quantity.js` the 2dp quantity rule shared with the plugin.
 - **An order is fetched exactly once, on entering the edit view.** Both write routes
   return the full order object, so a save re-renders from the response body and a parse
   changes nothing server-side — neither needs a follow-up `GET`. `main.js` holds a
@@ -760,14 +765,39 @@ parser becomes one feature inside it, not the whole tool.
   "Dirty" is `isDirty()`: any field touched, or the items or fees edited, since the form
   was last filled from the server. A field changed and put back still counts. That is the
   same rule the save payload uses, and it errs toward a warning.
-  - **The guard is a two-tap, not a dialog.** The first tap puts "Unsaved changes here.
-    Tap X again to…" in the status line; a second tap on the SAME exit goes. One
-    `guardedExit()` with ONE shared armed slot serves every exit, so a warning licenses
-    only the exit it was shown for (arming ‹ Orders does not wave + New order through).
-    The slot is cleared whenever the form is refilled from the server, so a warning
-    shown before a save cannot discard edits made after it.
+  - **The guard is a two-tap, not a dialog.** The first tap shows "Unsaved changes
+    here. Tap X again to…"; a second tap on the SAME exit goes.
+  - **The warning must be seen in the same glance as the tap, without scrolling.** So it
+    is shown WHERE THE TAP WAS, never in the form's status line — that line sits at the
+    top of the scrolling content and is off screen on any form taller than the
+    viewport, which made the guard read as a dead button until app 0.8.0.
+    - **The form's exits warn in a strip inside the sticky header**, with a Keep editing
+      button. It is absolutely positioned just below the bar, overlaying the content: a
+      strip that made the sticky header taller would shove the content under it down
+      mid-scroll, which is page movement by another route. The header is always on screen and holds two of the three form exits.
+      Chosen over the fixed save bar (the far end of the screen from those taps, and it
+      would put "discard" beside the button that keeps the work), over scrolling the
+      status line into view (moves the page, so someone who decides to stay has lost
+      their place), and over a transient toast (if it fades while the exit is still
+      armed, the second tap goes with no warning showing; if it persists, it is this
+      strip).
+    - **The update banner's Reload warns in the banner's own text**, for the same
+      reason: the banner is where that tap was.
+  - **One guard, app-wide, in `src/exit-guard.js`.** The form registers its `isDirty()`
+    there on mount; `main.js` clears it in `beginScreen()` on every navigation, so a form
+    already left behind cannot make the order list's Reload warn. Every exit — the
+    form's and the banner's — calls `requestExit(key, go, {warn, reset})`. The banner
+    ASKS the guard rather than the form telling `pwa.js` it is dirty: `pwa.js` stays
+    app-wide and knows no views, and there is one copy of the two-tap logic rather than
+    two to keep in step.
+  - **ONE armed slot for every exit**, so a warning licenses only the exit it was shown
+    for: arming ‹ Orders does not wave + New order or Reload through, and arming a
+    different exit takes the first warning down wherever it was showing. The slot is
+    cleared when the form is refilled from the server (a warning shown before a save
+    cannot discard edits made after it), by Keep editing, and by dismissing the banner.
   - **Guarded:** "‹ Orders" (from app 0.7.0; before that one tap discarded the form, on
-    the most common way out), the last-order card's "Open #N", and "+ New order".
+    the most common way out), the last-order card's "Open #N", "+ New order", and the
+    update banner's Reload (from app 0.8.0).
   - **Not an exit, so not guarded here:** the card's Reorder replaces the form's items
     rather than leaving, and has its own replace-confirmation. The product picker is a
     sheet over the form, which stays mounted.
@@ -776,11 +806,10 @@ parser becomes one feature inside it, not the whole tool.
       to an order that is going away. A second warning would be noise.
     - **A 401.** `api.js` drops the credential and the app routes to login. Nothing in
       the form could be saved at that point anyway; a save would 401 too.
-  - **Unguarded, and not guardable from inside the form:**
-    - **The browser or hardware back button.** There is no router and the app pushes no
-      history entries, so back leaves the app entirely, and in a standalone PWA on
-      Android it closes it. Only a `beforeunload` prompt could intercept that.
-    - **The update banner's Reload** — see Unverified / open.
+  - **Unguarded, and not guardable without a router:** **the browser or hardware back
+    button.** There is no router and the app pushes no history entries, so back leaves
+    the app entirely, and in a standalone PWA on Android it closes it. Only a
+    `beforeunload` prompt could intercept that.
   - **No `beforeunload` handler, by decision.** It fires on reload and tab close too, and
     browsers show a generic message the page cannot word, so it would be noise on every
     deliberate reload rather than help on the accidental one. `exit-guards.test.mjs`
@@ -960,6 +989,7 @@ parser becomes one feature inside it, not the whole tool.
 | 12 | Decimal quantities to 2dp; quantity as an editable field | done, **not yet on staging, unverified in a browser** | 7.1 / app 0.6.0 |
 | 13 | New order from the order form | done, **unverified in a browser** | app 0.6.0 |
 | 14 | Unsaved-changes guard on ‹ Orders; one guard for every exit | done, **unverified in a browser** | app 0.7.0 |
+| 15 | Exit warning shown in the header; update banner's Reload guarded | done, **unverified in a browser** | app 0.8.0 |
 
 **Steps 1-7 are the original plan, and all seven are built and verified** — the API layer
 by real requests against staging, the app in a browser as an installed PWA.
@@ -968,8 +998,8 @@ by real requests against staging, the app in a browser as an installed PWA.
 in a browser. The specifics are under Verified; the few behaviours those checks did not
 reach are under Unverified / open. None of rows 8-11 is on live yet.
 
-**Rows 12-14 are the unverified edge.** 12 needs 7.1 uploaded before it can be exercised
-at all; 13 and 14 are app-only and need only a browser. All pass locally — `php -l`, the
+**Rows 12-15 are the unverified edge.** 12 needs 7.1 uploaded before it can be exercised
+at all; 13-15 are app-only and need only a browser. All pass locally — `php -l`, the
 PHP quantity rule run under a real PHP with both stock filters, twelve app suites —
 which is evidence the code is coherent, not that it works against WooCommerce.
 
@@ -1328,16 +1358,20 @@ shipping fix — **confirmed on staging and in a browser**. `/ping` reports `7.0
 - **New order from the form is unseen in a browser.** Check that it reads as distinct
   from Save on a phone, that the two-tap warning is visible without scrolling, and that
   tapping it on a just-saved new order opens a blank form rather than doing nothing.
-- **The exit guards are unseen in a browser** (app 0.7.0). Check that the warning on
-  ‹ Orders is visible without scrolling: the status line sits at the top of the form, but
-  a staff member tapping back from the bottom of a long form may be scrolled well away
-  from it, and a warning nobody sees reads as a dead button.
-- **The update banner's Reload discards a dirty order form.** `pwa.js` reloads the page
-  when it is tapped, and it knows nothing about the form. It is a deliberate tap, never
-  automatic, and it appears only after a deploy, so the exposure is small — but it is the
-  one remaining in-app way to lose a half-filled order without a warning. The fix is a
-  small hook: the form registers its `isDirty()` with `pwa.js`, and the banner takes the
-  same two-tap. Not done, because it reaches outside the form.
+- **The exit guards are unseen in a browser** (app 0.7.0 / 0.8.0). Check on a phone,
+  scrolled to the bottom of a long form: that tapping ‹ Orders shows the strip under the
+  header at once, that the sticky header really does stay pinned (it is `sticky` inside
+  `.order-form`, which spans the page), that the strip - which overlays the top of the
+  content rather than pushing it down - does not hide something the user needs in order
+  to decide, and that Keep editing is easy to hit.
+  The Reload path can only be seen with a production build and a second deploy behind
+  it — see the service-worker traps under Start here.
+- **The update banner covers the order form's save bar.** Both are `position: fixed` at
+  the bottom; the banner is `z-index: 20` over the bar's `2`, so while it is up it sits
+  on top of Save. `body.has-pwa-banner` lifts only the order list's `.fab` clear of it.
+  Pre-existing, noticed while guarding Reload, not changed: Dismiss uncovers Save, and
+  the banner only appears after a deploy. The fix would be the same `has-pwa-banner`
+  lift applied to `.form-actions`' reserved space.
 - **The browser and hardware back buttons leave the app with no warning.** By decision
   — see the exit-guard entry under Product decisions — not an oversight.
 - **How many orders carry a stale shipping line is NOT KNOWN, and cannot be answered from

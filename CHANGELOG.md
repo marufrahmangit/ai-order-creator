@@ -2,6 +2,28 @@
 
 All notable changes to AI Order Creator are documented in this file.
 
+## App 0.8.0
+
+App only. The plugin is unchanged at 7.1.
+
+- **Fixed: the unsaved-changes warning was off screen when it mattered.** It went in the status line at the top of the form. On a form taller than the viewport, which is the normal case, that line has scrolled away, so tapping "‹ Orders" or "+ New order" from further down looked like nothing happened and the guard read as a broken button.
+  - **The warning now sits inside the sticky header**, as a strip just below the header bar, with a **Keep editing** button that takes it down. It is absolutely positioned, so it overlays the top of the content rather than making the header taller. A taller sticky header would push everything under it down mid-scroll.
+  - The header is always on screen, and it holds two of the three guarded exits, so the warning lands in the same glance as the tap, with no scrolling and no movement of the page.
+  - The strip is `role="alert"`. Its colours are asserted in `contrast.test.mjs`: 5.75:1 for the text, 17.74:1 for the button.
+- **Why the header, over the alternatives:**
+  - **The save bar** is pinned, but it is at the opposite end of the screen from the header taps. It would also put "discard your changes" beside the button that keeps them, which 0.6.0 deliberately separated.
+  - **Scrolling the status line into view** moves the page. Someone who decides to stay has then lost their place in the form, which is the opposite of what the guard is for.
+  - **A transient toast** either fades while the exit is still armed, so the second tap goes with no warning showing, or it persists, in which case it is this strip.
+- **Fixed: the update banner's Reload discarded a dirty order form with no warning.** It was the last in-app way to lose work.
+  - Reload now goes through the same guard as the form's exits. With unsaved work, the first tap rewords the banner itself to "Unsaved changes in this order. Tap Reload again to discard them and update." The banner stays up, and the second tap reloads. The warning goes in the banner because that is where the tap was.
+- **How the form's state reaches `pwa.js`:** the banner asks the guard. The guard moved out of the form into a new **`src/exit-guard.js`**. The form registers its `isDirty()` there when it mounts; `main.js` clears the registration in `beginScreen()` on every navigation, so a form already left behind cannot make Reload on the order list warn. `pwa.js` asks `requestExit('reload', …)`.
+  - This way neither module imports the other. `pwa.js` stays app-wide and knows nothing about views.
+  - Pushing a dirty flag from the form into `pwa.js` instead would have meant a second copy of the two-tap logic, with its own armed state to keep in step.
+  - **One armed slot for every exit, Reload included.** A warning licenses only the exit it was shown for. Arming a different exit takes the first warning down wherever it was showing. Dismissing the banner disarms Reload. A save disarms everything.
+- **Test shim:** `remove()` now really detaches a node, so a test can tell whether the banner is still up.
+- `test/exit-guards.test.mjs` grows to 49 checks. New coverage: the warning's placement in the header and not the status line, read from the stylesheet as sticky header plus overlaying strip, Keep editing, a save taking the warning down, Reload clean and dirty, Reload and ‹ Orders disarming each other, a dismissed banner, and `beginScreen()` clearing the guard. Each was confirmed to fail when the code it covers is reverted.
+- **`npm test`: 12 suites, 341 assertions.** `SHELL_VERSION` is bumped to `v12`.
+
 ## App 0.7.0
 
 App only. The plugin is unchanged at 7.1.

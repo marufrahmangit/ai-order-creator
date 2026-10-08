@@ -26,6 +26,7 @@ import { LastOrderCard } from './last-order.js'
 import { normalizeBdPhone } from '../phone.js'
 import { reorderSource } from '../reorder.js'
 import { parseQuantity, formatQuantity, stepDown, stepUp } from '../quantity.js'
+import { setUnsavedCheck, requestExit, disarm } from '../exit-guard.js'
 
 /** Every field whose dirty state is tracked, in payload-key form. */
 const FIELDS = ['name', 'phone', 'address_1', 'state', 'status', 'customer_note']
@@ -122,6 +123,35 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, onNewOrder, reord
   const title = el('h1', { class: 'app-title', text: state.orderId ? 'Order' : 'New order' })
   const message = el('p', { class: 'status-line', role: 'status' })
   const warningsNode = el('div', { class: 'warnings', hidden: true })
+
+  /*
+   * The unsaved-changes warning lives INSIDE the sticky header, not in the
+   * status line. On a form taller than the viewport - the normal case - the
+   * status line has scrolled away, so a warning there made "‹ Orders" look
+   * like a dead button. The header is always on screen and is where two of the
+   * three guarded exits sit, so the warning lands in the same glance as the
+   * tap, without scrolling and without moving the page.
+   */
+  const exitWarningText = el('p', { class: 'exit-warning-text' })
+  const exitWarning = el('div', { class: 'exit-warning', role: 'alert', hidden: true }, [
+    exitWarningText,
+    el('button', {
+      type: 'button',
+      class: 'button exit-warning-keep',
+      text: 'Keep editing',
+      onClick: () => disarm(),
+    }),
+  ])
+
+  function showExitWarning(text) {
+    exitWarningText.textContent = text
+    exitWarning.hidden = false
+  }
+
+  function hideExitWarning() {
+    exitWarning.hidden = true
+    exitWarningText.textContent = ''
+  }
 
   function setMessage(text, kind = 'info') {
     message.className = `status-line ${kind}`
@@ -239,21 +269,11 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, onNewOrder, reord
   }
 
   /**
-   * Which way out a second tap would take, once the first tap warned - or null.
-   *
-   * ONE slot shared by every exit, so a warning only ever licenses the exit it
-   * was shown for: arming "‹ Orders" and then tapping "+ New order" warns
-   * again rather than going. Cleared whenever the form is (re)filled from the
-   * server, so a warning shown before a save cannot wave through a later exit
-   * from edits made after it.
-   */
-  let armedExit = null
-
-  /**
    * Every way out of this form that would discard unsaved work goes through
-   * here. With nothing unsaved it goes straight away. Otherwise the first tap
-   * says what would be lost, through the status line rather than a second
-   * confirm UI, and only a second tap on the SAME exit goes ahead.
+   * here, and on to the app-wide guard in exit-guard.js - the same one the
+   * update banner's Reload uses. With nothing unsaved it goes straight away.
+   * Otherwise the first tap shows the warning in the header and only a second
+   * tap on the SAME exit goes ahead.
    *
    * Deliberately not routed through here: the trash action, which has its own
    * confirmation and removes the order the edits belonged to, and a 401, after
@@ -265,14 +285,10 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, onNewOrder, reord
    * @param {string} howTo    The second half of the warning.
    */
   function guardedExit(key, go, howTo) {
-    if (!isDirty() || armedExit === key) {
-      armedExit = null
-      go()
-      return
-    }
-
-    armedExit = key
-    setMessage(`Unsaved changes here. ${howTo}`, 'error')
+    requestExit(key, go, {
+      warn: () => showExitWarning(`Unsaved changes here. ${howTo}`),
+      reset: hideExitWarning,
+    })
   }
 
   /** "‹ Orders": back to the list. The most common way out, so the most likely to lose work. */
@@ -1498,7 +1514,7 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, onNewOrder, reord
     state.itemsDirty = false
     state.feesDirty = false
     // A warning was about edits that are now saved or replaced.
-    armedExit = null
+    disarm()
 
     title.textContent = order.number ? `Order #${order.number}` : 'Order'
     pasteBox.open = false
@@ -1578,6 +1594,7 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, onNewOrder, reord
         title,
         newOrderButton,
       ]),
+      exitWarning,
     ]),
     el('main', { class: 'form-main' }, [
       message,
@@ -1611,6 +1628,11 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, onNewOrder, reord
   renderWarnings()
   renderTrash(false)
   setBusy(false)
+
+  // This form is now the screen with unsaved work, as far as the app-wide
+  // guard is concerned - including the update banner's Reload. main.js clears
+  // it again on the next navigation.
+  setUnsavedCheck(isDirty)
 
   if (state.orderId !== null) {
     load()

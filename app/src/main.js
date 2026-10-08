@@ -18,6 +18,7 @@ import { LoginView } from './views/login.js'
 import { OrdersView } from './views/orders.js'
 import { OrderFormView } from './views/order-form.js'
 import { el, clear } from './dom.js'
+import { clearUnsavedCheck } from './exit-guard.js'
 
 const root = document.getElementById('app')
 
@@ -43,6 +44,10 @@ let reads = null
 
 function beginScreen(key) {
   route = key
+  // Whatever screen was mounted is going. If it had unsaved work, the guard
+  // must stop asking about it - otherwise a form already left behind would
+  // make Reload on the order list warn about edits nobody can see.
+  clearUnsavedCheck()
   reads?.abort()
   reads = new AbortController()
   return reads.signal
