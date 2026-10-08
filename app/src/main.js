@@ -170,8 +170,24 @@ function showReorderForm(order) {
     reorderFrom: order,
     onClose: showOrders,
     onOpenOrder: showOrderForm,
+    onNewOrder: showNewOrderForm,
     signal,
   })))
+}
+
+/**
+ * A blank new-order form, from the order form's own New order button.
+ *
+ * Bypasses the repeat-tap guard deliberately. From an unsaved new order the
+ * route is already 'form:new', so showOrderForm(null) would see the same key
+ * and do nothing - and discarding that form for a blank one is exactly what
+ * was asked for. The form has already asked about unsaved changes by the time
+ * this runs. A double tap is harmless: the second lands on a blank, clean form,
+ * which simply mounts blank again.
+ */
+function showNewOrderForm() {
+  route = null
+  showOrderForm(null)
 }
 
 /**
@@ -217,6 +233,7 @@ function showOrderForm(orderId) {
     // The repeat-customer card can open the previous order, which is the same
     // navigation the list uses.
     onOpenOrder: showOrderForm,
+    onNewOrder: showNewOrderForm,
     signal,
   })))
 }

@@ -16,6 +16,8 @@
  * are already filled, how the form models a line - is the form's business.
  */
 
+import { parseQuantity } from './quantity.js'
+
 /** A numeric string from the API, or null. */
 function toNumber(value) {
   if (value === null || value === undefined || value === '') return null
@@ -58,7 +60,8 @@ export function reorderSource(order) {
     },
 
     lines: (Array.isArray(order && order.line_items) ? order.line_items : []).map((line) => {
-      const quantity = Math.max(1, Number(line.quantity) || 1)
+      // Fractional quantities copy as they are; only a missing one becomes 1.
+      const quantity = parseQuantity(line.quantity) ?? 1
       return {
         product_id: Number(line.product_id) || 0,
         name: line.name || `Product ${line.product_id}`,

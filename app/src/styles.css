@@ -536,7 +536,7 @@ button {
   overflow-wrap: anywhere;
 }
 
-/* Only the quantity stepper lives here now; Price and Total sit above it. */
+/* Only the quantity lives here now; Price and Total sit above it. */
 .item-foot {
   display: flex;
   align-items: center;
@@ -608,11 +608,27 @@ button {
   cursor: default;
 }
 
-.qty-value {
-  min-width: 48px;
+/* The quantity is typed like Price and Total - same weight, same tabular
+   figures - but sits between the − and + buttons, so the stepper's border is
+   its border and it is centred rather than right-aligned. Wide enough for
+   "999.99" without scrolling inside the field. */
+.qty-stepper .item-qty-input {
+  width: 84px;
+  min-height: 48px;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  border-radius: 0;
   text-align: center;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
+}
+
+.qty-stepper .item-qty-input:focus-visible {
+  outline-offset: -2px;
+}
+
+/* The caption over the stepper, matching the Price and Total captions. */
+.item-qty-label {
+  flex: 0 0 auto;
 }
 
 .button.danger {

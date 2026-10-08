@@ -11,6 +11,7 @@
 
 import { formatMoney, formatDateTime } from '../format.js'
 import { el, clear } from '../dom.js'
+import { formatQuantity } from '../quantity.js'
 
 /**
  * @param {{
@@ -100,7 +101,7 @@ export function LastOrderCard({ onOpenOrder, onReorder }) {
       items.length > 0
         ? el('div', { class: 'last-order-lines' },
             items.map((line) => lineRow(
-              `${line.quantity} × ${line.name}`,
+              `${formatQuantity(line.quantity)} × ${line.name}`,
               formatMoney(line.total),
             )))
         : el('p', { class: 'last-order-meta', text: 'No items on that order.' }),

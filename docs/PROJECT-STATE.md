@@ -2,18 +2,26 @@
 
 Working brief for resuming this project cold. Present state only — git log is the history.
 
-Plugin header: **Order Ops v7.0**, Updated 2026-10-07. App **0.5.0**.
-**Staging runs 7.0. Live runs 6.6.**
+Plugin header: **Order Ops v7.1**, Updated 2026-10-08. App **0.6.0**.
+**Staging runs 7.0. Live runs 6.6.** Neither has 7.1.
 
-**Every build step, 1 through 11, is built AND verified on staging** — the API layer by
-real requests, the app in a browser, including as an installed standalone PWA. Steps
-8-11 came after the original seven-step plan and were verified at 6.8 and 7.0; what
-those checks did NOT cover is listed under Unverified / open.
+**Build steps 1 through 11 are built AND verified on staging** — the API layer by real
+requests, the app in a browser, including as an installed standalone PWA. Steps 8-11
+came after the original seven-step plan and were verified at 6.8 and 7.0; what those
+checks did NOT cover is listed under Unverified / open.
 
-**Live is four plugin versions behind the repo.** 6.7, 6.8, 6.9 and 7.0 have never been
+**Steps 12 and 13 — decimal quantities (7.1 / app 0.6.0) and New order from the form
+(app 0.6.0) — are built and pass every local check, but have not run on a server or in a
+browser.** 7.1 is a correctness fix, not a nicety: the *Decimal Product Quantity for
+WooCommerce* plugin is now active on BOTH sites, and every plugin up to 7.0 `(int)`-casts
+quantity, so **any fractional quantity sent through the app on either site today is
+silently saved as a whole number.** Upload 7.1 to staging first, and to live soon after.
+
+**Live is five plugin versions behind the repo.** 6.7 through 7.1 have never been
 uploaded there. They collapse into one upload: 6.7 added `GET /customers/last-order`,
-6.8 corrected it by removing a parameter, 6.9 added `shipping_rates` to `/meta`, and 7.0
-fixed a shipping data-correctness bug. **Only 7.0 needs to go up.**
+6.8 corrected it by removing a parameter, 6.9 added `shipping_rates` to `/meta`, 7.0
+fixed a shipping data-correctness bug, and 7.1 lets fractional quantities through.
+**Only 7.1 needs to go up.**
 
 **7.0 carries a data fix that existing orders do not get for free.** Any order whose
 district was cleared while 6.x was running still holds a stale shipping line and a total
@@ -30,38 +38,43 @@ list below.
 **Read this section, then the Build steps table, then Unverified / open. Those three
 say what exists, what is proven, and what is merely written down.**
 
-**There is no feature work queued.** Everything in the Build steps table is built,
-verified on staging and passes its checks locally. Two of those checks are in the repo
-and one is not:
+**There is no feature work queued.** Everything in the Build steps table is built and
+passes its checks locally; steps 1-11 are verified on staging, 12-13 are not yet. Two of
+those checks are in the repo and one is not:
 
-- **`npm test` in `app/`** — ten suites, 227 assertions. In the repo. Run this first.
+- **`npm test` in `app/`** — eleven suites, 289 assertions. In the repo. Run this first.
 - **`php -l` over all 27 PHP files** — needs the portable PHP described under
   Conventions, which is not in the repo either but takes one download to set up.
 - **A contract check** that greps the real PHP and JS source and asserts every field
-  name and behavioural rule they must agree on — 196 assertions at 7.0. **This is a
+  name and behavioural rule they must agree on — 196 assertions at 7.0, not rebuilt for
+  7.1 (the PHP/JS quantity agreement is pinned in `npm test` instead). **This is a
   scratch tool, rebuilt per session, and is NOT in the repo.** Do not go looking for it.
   It is mentioned because the counts quoted in this document came from it, and because
   rebuilding it is cheap and has caught real drift; but `npm test` is the durable check.
 
 None of them needs a server.
 
-**The next work is deployment, and it is operational, not code.** In order, because
-each step depends on the one before:
+**The next work is deployment and verification, and it is operational, not code.** In
+order, because each step depends on the one before:
 
-1. Upload plugin **7.0** to live and confirm `GET /aioc/v1/ping` reports `7.0`. A stale
-   version here causes misleading 404s on new routes, so do not skip the check. This is
-   the first time live's REST layer will have been called at all.
-2. Find and re-save any live order with an empty billing state and a shipping line —
+1. Upload plugin **7.1** to STAGING and confirm `GET /aioc/v1/ping` reports `7.1`. A
+   stale version here causes misleading 404s on new routes, so do not skip the check.
+2. Verify 7.1 and app 0.6.0 against staging from `npm run dev` — the checks are listed
+   under Unverified / open. **The plugin must be uploaded before the app is used for
+   this**: app 0.6.0 against 7.0 still has every fractional quantity `(int)`-cast.
+3. Upload **7.1** to live and confirm `/ping` reports `7.1`. This is the first time live's
+   REST layer will have been called at all.
+4. Find and re-save any live order with an empty billing state and a shipping line —
    the 6.x stale-shipping defect. Unverified / open says how to find them.
-3. Stand up `ops.cartmixbd.com`, then `npm run build` in `app/` and upload `app/dist/`.
-4. Change `ai_app_origin` to `https://ops.cartmixbd.com`. **This breaks local development
+5. Stand up `ops.cartmixbd.com`, then `npm run build` in `app/` and upload `app/dist/`.
+6. Change `ai_app_origin` to `https://ops.cartmixbd.com`. **This breaks local development
    until changed back** — it holds one origin, not a list.
-5. Decide whether the app points at live. **Live's REST layer has never been exercised**,
+7. Decide whether the app points at live. **Live's REST layer has never been exercised**,
    and `ai_app_origin` is expected to be empty there, which means no browser can reach
    it. Confirm that before assuming either way: empty is the safe state, and it is also
    what would make a first attempt from the app fail with no CORS headers.
 
-Steps 1-2 can be done today. Steps 3-5 need the subdomain.
+Steps 1-4 can be done today. Steps 5-7 need the subdomain.
 
 **Two traps when testing the production build on localhost, both of which have already
 cost a debugging round:**
@@ -128,6 +141,15 @@ parser becomes one feature inside it, not the whole tool.
   why it was turned off. Recorded here so nobody re-enables it without knowing what
   broke. (`POST /token` reads the plaintext from the create call rather than from any
   admin screen, so it would not be affected by that particular defect either way.)
+- **Decimal Product Quantity for WooCommerce (wpgear) is active on BOTH staging and
+  live, and fractional quantities depend on it.** It filters `woocommerce_stock_amount`,
+  which `wc_stock_amount()` applies inside `WC_Order_Item::set_quantity()`; WooCommerce's
+  default for that filter is `intval`. This plugin does not depend on it in code — it
+  passes quantities through `wc_stock_amount()` and lets the site's filter decide — so
+  **deactivating it on a site quietly turns that site back to whole-number quantities**:
+  1.5 is stored as 1, and the write response says so in a warning. That is the intended
+  degradation, not a bug, but it is the first thing to check if fractions stop sticking.
+  The 2-decimal limit is ours (`AIOC_QUANTITY_DECIMALS`), because that plugin sets none.
 - **Code Snippets is a second place code runs on these sites, and it has already been
   load-bearing twice.** Two things to know:
   - Custom order statuses live in a Code Snippets snippet that hooks `wc_order_statuses`,
@@ -191,6 +213,13 @@ parser becomes one feature inside it, not the whole tool.
   never currency symbols. The client formats.
   Note `includes/ajax.php` does the opposite — it feeds the legacy admin UI and is
   deliberately left alone.
+- **Quantities in REST responses are a raw numeric string too, trimmed rather than
+  padded** — `"1"`, `"1.5"`, `"3.56"` — via `ai_rest_quantity()`. This covers line-item
+  `quantity` and the list's `item_count`. Same reason as money: `get_item_count()` sums
+  floats, and 1.1 + 2.2 would otherwise be sent as `3.3000000000000003`. Trimmed because
+  a quantity, unlike money, has no fixed number of decimals to show. The app sends them
+  back the same way. **Never `(int)` a quantity anywhere** — that is what silently turned
+  1.5 into 1 in both directions until 7.1.
 - No raw SQL. Use `wc_get_orders()` / `wc_get_products()`.
 - Pagination params clamp rather than 400.
 - Never register a bare PHP built-in as a `sanitize_callback` / `validate_callback`:
@@ -213,7 +242,7 @@ parser becomes one feature inside it, not the whole tool.
     requiring it without `ABSPATH` defined exits silently with status 0.
   - The Groq path still cannot be exercised locally: it needs network and a key. Only
     the deterministic pipeline is reachable, which is where the parsing logic lives.
-- App tests: `npm test` in `app/`. No dependencies, no browser, **ten suites, 227
+- App tests: `npm test` in `app/`. No dependencies, no browser, **eleven suites, 289
   assertions**. Some read the real source and lift part of it, so they cannot drift from
   the code silently; the rest run a view against a crude DOM shim, which is the only
   thing in this project that executes one at all.
@@ -282,6 +311,15 @@ parser becomes one feature inside it, not the whole tool.
     BOTH ends: the bar is `fixed`, and `.form-main` reserves room below its content.
     Fixing either alone reintroduces the overlap, which is why both are pinned. Confirmed
     to fail when the old `sticky` rule is put back.
+  - `test/decimal-quantity.test.mjs` — fractional quantities and New order from the form.
+    The rounding cases are pinned to values **generated by running the real
+    `ai_rest_line_quantity()` under PHP** with a float-safe stock filter, the same way
+    `phone-parity` pins the phone rule, so regenerate them rather than editing them to
+    pass. Beyond that it drives the quantity input (rounding, the focus-time fallback,
+    the stepper floor), asserts that leaving Price untouched cannot drift the total, reads
+    the save payload, checks the list's item-count wording, and asserts no
+    `Math.max(1, … quantity)` clamp survives in `src/`. Confirmed to fail when the old
+    clamp, the old Price blur or an unguarded New order is put back.
   - The DOM shim and module loader the view tests share live in `test/dom-shim.mjs`.
     A new module under `src/` must be listed in its `VIEW_MODULES` or the view suites
     fail to resolve it.
@@ -666,6 +704,51 @@ parser becomes one feature inside it, not the whole tool.
     thousands separators, because "1,500" is how the amount actually gets typed and
     `Number()` makes `NaN` of it. Unparseable input keeps the previous value rather than
     becoming 0. These are input-handling conveniences, not behaviours WooCommerce lacks.
+  - **Price is held at full precision and only SHOWN at 2dp.** On load it is
+    `total / quantity`, which often does not come out clean — 1000 / 1.5 is 666.666… —
+    and leaving the Price field without editing it must not re-read the rounded text.
+    It used to, which turned that total into 1000.005 the moment someone tabbed through,
+    and showed up as 2000.01 on the next quantity change. An unchanged Price field now
+    changes nothing on blur. Fractional quantities made this common rather than rare.
+- **Quantities can be fractional, to 2 decimal places, and the site decides whether
+  they can be fractional at all.** Since the decimal plugin went on (see Environment).
+  - **Whether a fraction is allowed is WooCommerce's call, not ours.**
+    `ai_rest_line_quantity()` passes the submitted figure through `wc_stock_amount()`,
+    so the site's `woocommerce_stock_amount` filter decides. Hardcoding float handling
+    would have kept accepting 1.5 on a site where WooCommerce had been told not to.
+  - **The 2dp limit is applied on top, and a third decimal is ROUNDED, not rejected.**
+    The write path's governing rule is "mirror WooCommerce, never stricter", and it
+    already fixes a bad line with a warning rather than failing the order. The app
+    rounds identically on blur, so the figure on screen before Save is the figure
+    stored. Both sides round half away from zero on the DECIMAL value: PHP's `round()`,
+    and in JS a shift through the exponent (`Math.round(x * 100) / 100` rounds 1.005
+    down in binary floating point).
+  - **Zero, negative and unparseable are not quantities.** The server stores 1 for
+    them, as it always did, but now with a warning. The app never sends them: an entry
+    that does not come out above zero falls back to what the row held when the field
+    was focused. Remove is how a row goes away, so − steps by 1 and never reaches zero —
+    from 1.5 it goes to 0.5, and at 1 or below it is disabled.
+  - **Every quantity the server changes is reported.** Rounded, truncated by the default
+    filter, or replaced by 1 — the response warns, naming the product and both figures.
+    A quantity becomes money the moment it is multiplied by a price.
+  - **Quantity is shown unpadded** — `1`, not `1.00`. It is typed in a field styled like
+    Price and Total, centred between the − and + buttons.
+  - **`item_count` reads as WooCommerce's sum**: "1 item", "2.5 items", "0.5 items" —
+    singular only for exactly 1. Mixing 1.5 of one product with 1 of another into "2.5"
+    is not an especially meaningful figure, but it is WooCommerce's `get_item_count()`,
+    and reinterpreting it as a count of lines would change the wording of every
+    existing whole-number order too. Copy WooCommerce rather than redefine it.
+- **A new order can be started from the order form, not only from the list.** **+ New
+  order** sits in the form's header as a plain link; Save is the filled primary button
+  pinned to the bottom. Opposite ends, opposite styles, deliberately — one keeps the
+  work, the other can discard it.
+  - With unsaved changes the first tap warns through the status line and the second
+    goes ahead — the same two-step as opening the previous order from the
+    repeat-customer card. A clean form, including one just saved, goes straight through.
+  - Disabled while a save is in flight: the write would still complete, but the staff
+    member would lose sight of the new order and its number.
+  - `main.js` resets its route key for this one action. From an unsaved new order the
+    route is already `form:new`, so the repeat-tap guard would otherwise swallow the tap.
 - **The order form edits fees, including negative ones.** A fee row is a name input and
   an amount input; the name may be empty and the amount may be negative, with nothing
   blocking a minus sign or taking an absolute value. The provisional total is items plus
@@ -836,6 +919,8 @@ parser becomes one feature inside it, not the whole tool.
 | 9 | Reorder — from the last-order card and from each list row | done, **verified in a browser** | app 0.3.0 |
 | 10 | Expected shipping on an unsaved order | done, **verified on staging and in a browser** at 7.0 | 6.9 / app 0.4.0 |
 | 11 | Shipping cleared with the district; save bar fixed | done, **verified on staging and in a browser** at 7.0 | 7.0 / app 0.5.0 |
+| 12 | Decimal quantities to 2dp; quantity as an editable field | done, **not yet on staging, unverified in a browser** | 7.1 / app 0.6.0 |
+| 13 | New order from the order form | done, **unverified in a browser** | app 0.6.0 |
 
 **Steps 1-7 are the original plan, and all seven are built and verified** — the API layer
 by real requests against staging, the app in a browser as an installed PWA.
@@ -843,6 +928,11 @@ by real requests against staging, the app in a browser as an installed PWA.
 **Rows 8 to 11 came afterwards, and are verified too** — on staging at 6.8 and 7.0, and
 in a browser. The specifics are under Verified; the few behaviours those checks did not
 reach are under Unverified / open. None of rows 8-11 is on live yet.
+
+**Rows 12 and 13 are the unverified edge.** 12 needs 7.1 uploaded before it can be
+exercised at all; 13 is app-only and needs only a browser. Both pass locally — `php -l`,
+the PHP quantity rule run under a real PHP with both stock filters, eleven app suites —
+which is evidence the code is coherent, not that it works against WooCommerce.
 
 **The API layer is complete and signed off.** Step 3 at 5.6/5.7 with 3d/3e verified at
 6.2/6.3, step 4a at 5.8, 4b at 5.9, 4c and 4d at 6.1 — every endpoint confirmed by real
@@ -864,7 +954,8 @@ because it defaults to `$override = false`:
 
 - `GET  /aioc/v1/ping` — `includes/rest/rest.php`
 - `GET  /aioc/v1/orders` — `includes/rest/routes/orders.php`
-- `GET  /aioc/v1/orders/{id}` — `includes/rest/routes/orders.php`. Carries `line_items`,
+- `GET  /aioc/v1/orders/{id}` — `includes/rest/routes/orders.php`. Line-item `quantity`
+  (and the list's `item_count`) are trimmed numeric strings from 7.1. Carries `line_items`,
   `shipping_lines` and `fee_lines`; the same builder serves both write routes.
 - `GET  /aioc/v1/products?search=&limit=&fields=` — `includes/rest/routes/products.php`.
   `search` is required, 3-character minimum on the whole term. `limit` defaults to 20
@@ -1174,8 +1265,35 @@ shipping fix — **confirmed on staging and in a browser**. `/ping` reports `7.0
   missed; and variation-level SKUs are findable only by exact match via
   `wc_get_product_id_by_sku()`, the parent-first search never reaching a partial one.
   Parent/simple SKU partial matching IS verified.
-- **Nothing in 6.7, 6.8, 6.9 or 7.0 has run on LIVE.** Live is on 6.6; staging is on 7.0
-  and verified. Uploading 7.0 to live covers all four.
+- **Nothing in 6.7-7.1 has run on LIVE, and 7.1 has not run anywhere.** Live is on 6.6;
+  staging is on 7.0 and verified up to there. Uploading 7.1 covers all five.
+- **Decimal quantities (7.1 / app 0.6.0) are unexercised against WooCommerce.** Verified
+  only by running `ai_rest_line_quantity()` under a real PHP with both filters stubbed,
+  and by the app suites. On staging, check:
+  - Saving 1.5 stores 1.5 — in the response, AND in wp-admin's order screen, which is
+    where the decimal plugin's own handling shows. 3.567 comes back as 3.57 with a
+    warning; 0 and a negative come back as 1 with a warning.
+  - A fractional quantity entered in wp-admin loads into the app unchanged, with Price
+    as total ÷ quantity, and survives an app save of that order's items.
+  - The list shows "2.5 items" for 1.5 + 1, and `item_count` is the string `"2.5"`.
+  - **What the decimal plugin's filter actually returns is assumed, not read.** The
+    code relies on it returning a float-safe number for "1.5"; its source was not
+    inspected. If it rounds to its own precision, or returns a string, ours still
+    applies 2dp on top — but confirm by observation rather than assuming.
+  - **`add_product()`'s own subtotal for an UNPRICED line** — the add-by-id stopgap,
+    which sends no total — calls `wc_get_price_excluding_tax()` with the fractional
+    quantity. Read as float-safe in WooCommerce 11, not exercised. Every priced line
+    sends its own total, so this touches only that one path.
+  - Stock reduction for a fractional line is the decimal plugin's and WooCommerce's
+    business, not this plugin's, and is not covered by anything here.
+- **New order from the form is unseen in a browser.** Check that it reads as distinct
+  from Save on a phone, that the two-tap warning is visible without scrolling, and that
+  tapping it on a just-saved new order opens a blank form rather than doing nothing.
+- **`‹ Orders` in the form's header has NO unsaved-changes guard,** and never had one.
+  It calls `showOrders()` directly, so a half-filled form is discarded on one tap. The
+  two-step guard exists only on opening the previous order and, from 0.6.0, on New
+  order. Noticed while adding the latter; not changed, because it was not asked for —
+  but it is the same risk, and probably the more common tap.
 - **How many orders carry a stale shipping line is NOT KNOWN, and cannot be answered from
   this repo** — on live especially. The 7.0 fix stops new ones; it does not repair
   existing ones, each of which needs one save (confirmed on staging with order 11361,
@@ -1308,6 +1426,8 @@ shipping fix — **confirmed on staging and in a browser**. `/ping` reports `7.0
   - **`ai_app_origin`'s value on either site** — `http://localhost:5173` on staging,
     expected empty on live. Both are settings in wp-admin. The live one in particular is
     an expectation, not an observation: nobody has looked.
+  - **That the Decimal Product Quantity plugin is active on both sites.** Reported, not
+    observed from here.
   - **That Defender is deactivated**, and that it was what truncated the
     application-password display.
   - **That the custom-status snippet exists in Code Snippets and is active**, and that

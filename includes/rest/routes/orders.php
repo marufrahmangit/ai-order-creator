@@ -16,6 +16,24 @@ function ai_rest_money($value) {
 }
 
 /**
+ * Format a quantity as a bare numeric string with trailing zeros trimmed:
+ * "1", "1.5", "3.56".
+ *
+ * A string for the same reason money is one. Quantities can be fractional on
+ * this store (the Decimal Product Quantity plugin filters
+ * woocommerce_stock_amount), and get_item_count() SUMS them as floats, so
+ * 1.1 + 2.2 would otherwise go out as 3.3000000000000003. Rounded to 2dp
+ * because that is the store's limit on a quantity; trimmed because a
+ * quantity, unlike money, has no fixed number of decimals to show.
+ *
+ * @param mixed $value
+ * @return string
+ */
+function ai_rest_quantity($value) {
+    return wc_format_decimal($value, AIOC_QUANTITY_DECIMALS, true);
+}
+
+/**
  * ISO 8601 representation of a WC_DateTime, or null.
  *
  * @param WC_DateTime|null $date
@@ -76,7 +94,8 @@ function ai_rest_prepare_order_summary(WC_Order $order) {
         'customer_name' => trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name()),
         'phone'         => $order->get_billing_phone(),
         'total'         => ai_rest_money($order->get_total()),
-        'item_count'    => (int) $order->get_item_count(),
+        // A sum of quantities, so fractional when any line is.
+        'item_count'    => ai_rest_quantity($order->get_item_count()),
     ];
 }
 
@@ -103,7 +122,9 @@ function ai_rest_prepare_order_detail(WC_Order $order) {
             'product_id'   => (int) $item->get_product_id(),
             'variation_id' => (int) $item->get_variation_id(),
             'name'         => $item->get_name(),
-            'quantity'     => (int) $item->get_quantity(),
+            // NOT an (int) cast: that read 1.5 back as 1, and the app would then
+            // derive a doubled unit price and save the 1 over the real figure.
+            'quantity'     => ai_rest_quantity($item->get_quantity()),
             'subtotal'     => ai_rest_money($item->get_subtotal()),
             'total'        => ai_rest_money($item->get_total()),
         ];

@@ -35,7 +35,7 @@ const SAVED = {
   id: SAVED_ID, number: String(SAVED_ID), status: 'processing', status_label: 'Processing',
   date_created: '2026-10-06T10:00:00+06:00',
   billing: { first_name: 'Saved Person', phone: '01771160171', address_1: 'Somewhere', state: 'BD-13' },
-  line_items: [{ id: 1, product_id: 111, name: 'Thing', quantity: 1, subtotal: '500.00', total: '500.00' }],
+  line_items: [{ id: 1, product_id: 111, name: 'Thing', quantity: '1', subtotal: '500.00', total: '500.00' }],
   // Deliberately 95, not the 80 the table holds for BD-13: a figure someone
   // adjusted in wp-admin. The server stays authoritative on a saved order.
   shipping_lines: [{ id: 2, method_title: 'Adjusted Flat Rate', total: '95.00' }],

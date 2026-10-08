@@ -18,6 +18,7 @@
  */
 
 import { fetchOrders, fetchOrder, restoreOrder } from '../api.js'
+import { formatQuantity } from '../quantity.js'
 import { getCredential } from '../auth.js'
 import { orderStatuses } from '../meta.js'
 import { formatMoney, formatDateTime } from '../format.js'
@@ -27,6 +28,27 @@ const PER_PAGE = 20
 
 /** Matches the ~250-300ms the product picker will use in step 6. */
 const SEARCH_DEBOUNCE_MS = 300
+
+/**
+ * "1 item", "3 items", "2.5 items".
+ *
+ * item_count is WooCommerce's get_item_count(), the SUM of the line quantities,
+ * so it is fractional whenever a line is - 1.5 of one thing and 1 of another
+ * is 2.5. It is shown as that sum, unpadded, rather than reinterpreted as a
+ * count of lines: the figure is WooCommerce's, and the app does not get to
+ * redefine it. Singular only for exactly 1; 0.5 and 1.5 read as plural, which
+ * is how English counts a fraction.
+ *
+ * It arrives as a numeric string ("2.5"), so it must be compared as a number:
+ * "1" === 1 is false.
+ *
+ * @param {string|number} value
+ */
+function itemCountText(value) {
+  const count = Number(value)
+  if (!Number.isFinite(count)) return ''
+  return count === 1 ? '1 item' : `${formatQuantity(count)} items`
+}
 
 /**
  * @param {{
@@ -133,7 +155,7 @@ export function OrdersView({
         el('span', { class: 'total', text: formatMoney(order.total) }),
         el('span', {
           class: 'items',
-          text: order.item_count === 1 ? '1 item' : `${order.item_count} items`,
+          text: itemCountText(order.item_count),
         }),
         el('span', { class: 'date', text: formatDateTime(order.date_created) }),
       ]),

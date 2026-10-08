@@ -46,7 +46,7 @@ globalThis.fetch = async (url) => {
       id: 412, number: '412', status: 'pending', status_label: 'Pending payment',
       date_created: '2026-10-07T10:00:00+06:00',
       billing: { first_name: 'A', phone: '01771160171', address_1: 'X', state: 'BD-13' },
-      line_items: [{ id: 1, product_id: 9, name: 'Thing', quantity: 1, subtotal: '10.00', total: '10.00' }],
+      line_items: [{ id: 1, product_id: 9, name: 'Thing', quantity: '1', subtotal: '10.00', total: '10.00' }],
       shipping_lines: [], fee_lines: [], customer_note: '', total: '10.00', currency: 'BDT',
     }
   }

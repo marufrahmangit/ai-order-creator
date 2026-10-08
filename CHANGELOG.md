@@ -2,6 +2,43 @@
 
 All notable changes to AI Order Creator are documented in this file.
 
+## 7.1
+
+- **Fixed: fractional line-item quantities were silently truncated, in both directions.** The *Decimal Product Quantity for WooCommerce* plugin (wpgear) is now active on staging and live, and lets WooCommerce store a quantity of 1.5. This plugin did not let it through:
+  - **On the way in**, `ai_rest_add_line_items()` did `(int) $entry['quantity']`, so 1.5 was saved as 1. A wrong order with no error and no warning.
+  - **On the way out**, the response builder did `(int) $item->get_quantity()`, so a fractional quantity entered in wp-admin read back as 1. The app derives Price as total ÷ quantity, so it showed a doubled unit price, and because the app sends every line's quantity whenever an order's items are saved, the next such save **wrote the 1 over the real figure**.
+  - `item_count` in the list summary was `(int)` of `get_item_count()`, which sums quantities, so 2.5 read as 2.
+- **The fix defers to WooCommerce.** The new `ai_rest_line_quantity()` passes the submitted quantity through `wc_stock_amount()`, which applies the site's `woocommerce_stock_amount` filter. That filter is `intval` by default and float-safe while the decimal plugin is active. So 1.5 is stored exactly when WooCommerce would store it. **If the decimal plugin is ever deactivated, quantities go back to whole numbers because WooCommerce says so, not because this code decided.**
+- **Quantities are limited to 2 decimal places**, applied on top of `wc_stock_amount()` because the decimal plugin imposes no limit. The new constant `AIOC_QUANTITY_DECIMALS` holds it.
+  - **A third decimal is rounded, not rejected.** 3.567 is stored as 3.57. This endpoint's rule is to mirror WooCommerce and never be stricter: it fixes a bad line with a warning rather than failing the whole order. The app rounds the same way when the field loses focus, so the figure on screen before the save is the figure stored.
+  - Verified locally under PHP 8.3.35 with both filters stubbed: with `intval`, 1.5 → 1 (warned); with a float-safe filter, 1.5 → 1.5, 3.567 → 3.57 (warned), 1.005 → 1.01 (warned), "2.50" → 2.5.
+- **A quantity that is changed on the way in now says so.** Whenever the stored figure differs from the one sent, the response carries a warning naming the product and both figures. That covers a rounded figure, one truncated by the default filter, and a zero, negative or unparseable entry, which is stored as 1. Before this, a bad quantity was clamped to 1 silently.
+- **Response shape change: `quantity` and `item_count` are now trimmed numeric strings** — `"1"`, `"1.5"`, `"3.56"` — via the new `ai_rest_quantity()`. They are no longer integers.
+  - This is for the reason money is a string. `get_item_count()` sums floats, and 1.1 + 2.2 would otherwise be sent as `3.3000000000000003`. Trimmed rather than padded to 2dp, because a quantity has no fixed number of decimals to show.
+  - App 0.6.0 reads the new shape. **Upload this plugin before deploying app 0.6.0.** Against 7.0, the new app's string quantities are `(int)`-cast exactly as before, so 1.5 would still save as 1.
+- The REST argument declaration needed no change. `line_items` is declared `'type' => 'array'` with no `items` schema, so WordPress never inspects or coerces the quantity inside it.
+- `includes/ajax.php` is unchanged. It already passed `get_quantity()` through raw to the legacy admin UI.
+
+### App 0.6.0
+
+- **Quantity is an editable field**, in the same style as Price and Total, with − and + kept on either side as a convenience. Each button steps by 1.
+  - You type freely, and the figure is normalized only when the field loses focus. Spaces and thousands separators are stripped; the decimal point is not. Rounded to 2 places, the same way the plugin rounds. Anything that does not come out above zero, or does not parse, falls back to what the row held **when the field was focused**, not to whatever half-typed figure parsed along the way.
+  - Shown unpadded: `1`, `1.5`, `3.56`, never `1.00`.
+  - − never reaches zero. From 1.5 it goes to 0.5; at 1 or below it is disabled. Remove is how a row goes away.
+  - Rounding goes through the decimal exponent rather than `Math.round(x * 100) / 100`, which rounds 1.005 the wrong way in binary floating point. This agrees with PHP.
+- **Fixed: every quantity was clamped to at least 1.** That happened on load, on Reorder and on every step, so a stored 0.5 became 1 in the form.
+- **Fixed: focusing Price and leaving it changed the line total.** A loaded price is total ÷ quantity at full precision, but only *shown* at 2dp. Leaving the field re-read the rounded text, so 1000 ÷ 1.5 shown as 666.67 turned the total into 1000.005 without anyone typing. Fractional quantities made this far more likely. An unchanged Price field now changes nothing on blur.
+- **Line-item quantities are sent as trimmed numeric strings**, matching the API's new response shape.
+- **The order list reads `item_count` as WooCommerce's sum**: "1 item", "2.5 items", "0.5 items". It is compared as a number, since the API now sends a string. The last-order card shows quantities the same way.
+- **New: start a new order from the order form**, without going back to the list. **+ New order** sits in the header as a plain link, while Save is the filled button pinned to the bottom. They are at opposite ends of the screen in opposite styles because one keeps work and the other can discard it.
+  - With unsaved changes, the first tap only warns through the status line and the second tap goes ahead. This is the same two-step the form already uses before opening a previous order.
+  - It is disabled while a save is in flight.
+  - From an unsaved new order the route is already `form:new`, which the repeat-tap guard would swallow, so `main.js` resets the route for this action.
+- **`npm test` runs 11 suites, 289 assertions.** The new `test/decimal-quantity.test.mjs` covers the rounding rule pinned to the PHP output, the input, the fallback, the stepper floor, the price-precision fix, the payload, the list wording and New order. It also asserts that no `Math.max(1, … quantity)` clamp survives in `src/`.
+  - The existing suites' fixtures used integer quantities, which is no longer the API's shape. They now use the strings the API sends, and the Reorder suite carries a fractional line through the save payload.
+  - The new suite was checked by breaking the code. Restoring the old clamp, removing the Price fix or skipping the New order confirmation each makes it fail.
+- `SHELL_VERSION` is bumped to `v10`.
+
 ## 7.0
 
 - **Fixed: clearing an order's district left the old shipping line on it, and in its total.** Order 11361 on staging carries a 120.00 `Gazipur Flat Rate` line with an empty billing state, and saving again did not clear it. This is a data-correctness bug, not a display one — the stored total was wrong.

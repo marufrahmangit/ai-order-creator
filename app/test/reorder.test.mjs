@@ -27,7 +27,7 @@ const CURRENT = {
   id: EDITING_ID, number: String(EDITING_ID), status: 'pending', status_label: 'Pending payment',
   date_created: '2026-10-05T10:00:00+06:00',
   billing: { first_name: 'Current Person', phone: '01771160171', address_1: 'Current address', state: 'BD-13' },
-  line_items: [{ id: 7, product_id: 111, name: 'Already here', quantity: 1, subtotal: '50.00', total: '50.00' }],
+  line_items: [{ id: 7, product_id: 111, name: 'Already here', quantity: '1', subtotal: '50.00', total: '50.00' }],
   shipping_lines: [{ id: 8, method_title: 'Dhaka Flat Rate', total: '80.00' }],
   fee_lines: [],
   customer_note: '', total: '130.00', currency: 'BDT',
@@ -39,8 +39,8 @@ const PREVIOUS = {
   date_created: '2026-09-28T10:00:00+06:00',
   billing: { first_name: 'Repeat Customer', phone: OTHER_PHONE, address_1: 'Old address', state: 'BD-18', state_label: 'Gazipur' },
   line_items: [
-    { id: 1, product_id: 9167, name: 'Three Piece', quantity: 2, subtotal: '350.00', total: '350.00' },
-    { id: 2, product_id: 9200, name: 'Saree', quantity: 1, subtotal: '2500.00', total: '2500.00' },
+    { id: 1, product_id: 9167, name: 'Three Piece', quantity: '2', subtotal: '350.00', total: '350.00' },
+    { id: 2, product_id: 9200, name: 'Saree', quantity: '1.5', subtotal: '2500.00', total: '2500.00' },
   ],
   shipping_lines: [{ id: 3, method_title: 'Gazipur Flat Rate', total: '120.00' }],
   fee_lines: [
@@ -145,9 +145,9 @@ async function newFormWithCard() {
 
   check('every line item is copied', body?.line_items?.length, 2)
   check('line items carry product_id, quantity and total',
-    body?.line_items?.[0], { product_id: 9167, quantity: 2, total: '350.00' })
-  check('the second line too',
-    body?.line_items?.[1], { product_id: 9200, quantity: 1, total: '2500.00' })
+    body?.line_items?.[0], { product_id: 9167, quantity: '2', total: '350.00' })
+  check('the second line too, its fractional quantity intact',
+    body?.line_items?.[1], { product_id: 9200, quantity: '1.5', total: '2500.00' })
 
   check('every fee is copied', body?.fee_lines?.length, 2)
   check('fees carry name and total', body?.fee_lines?.[0], { name: 'Gift wrap', total: '50.00' })

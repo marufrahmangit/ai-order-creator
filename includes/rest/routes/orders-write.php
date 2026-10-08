@@ -113,6 +113,56 @@ function ai_rest_validate_order_payload(WP_REST_Request $request) {
 }
 
 /**
+ * A submitted line-item quantity, as this site will store it.
+ *
+ * DEFERS TO WOOCOMMERCE rather than deciding for itself whether a quantity may
+ * be fractional. wc_stock_amount() applies the woocommerce_stock_amount filter,
+ * which is intval by default and is replaced by a float-safe version when the
+ * Decimal Product Quantity plugin is active (it is, on both sites). So 1.5
+ * survives here exactly when WooCommerce would store it, and if that plugin is
+ * ever deactivated, quantities go back to whole numbers because WooCommerce
+ * says so - not because this code does.
+ *
+ * The store's 2-decimal limit is applied ON TOP, because the plugin imposes
+ * none. A third decimal is ROUNDED rather than rejected: this endpoint fixes a
+ * bad line with a warning instead of failing the whole order, and the app
+ * rounds the same way when the field loses focus, so what was on screen is
+ * what gets stored.
+ *
+ * Absent means 1, as it always has. Unparseable, zero or negative also becomes
+ * 1 - Remove is how a line goes away - but those come back as a warning.
+ *
+ * @param mixed $raw
+ * @return array{0: int|float, 1: bool} The quantity, and whether it differs
+ *                                      from what was submitted.
+ */
+function ai_rest_line_quantity($raw) {
+    if ($raw === null || $raw === '') {
+        return [1, false];
+    }
+
+    // wc_format_decimal() normalizes the store's decimal separator to '.' and
+    // strips anything that is not a digit, sign or point, so '' means "not a
+    // number at all".
+    $clean = is_scalar($raw) ? wc_format_decimal($raw) : '';
+    if ($clean === '' || !is_numeric($clean)) {
+        return [1, true];
+    }
+
+    $quantity = wc_stock_amount($clean);
+    if (!is_int($quantity)) {
+        $quantity = round((float) $quantity, AIOC_QUANTITY_DECIMALS);
+    }
+
+    if ($quantity <= 0) {
+        return [1, true];
+    }
+
+    // Compared as numbers, so "2" against 2 and "1.50" against 1.5 are equal.
+    return [$quantity, (float) $quantity !== (float) $clean];
+}
+
+/**
  * Add line items to an order from a payload array.
  *
  * A bad line is skipped with a warning rather than failing the request - one
@@ -131,10 +181,10 @@ function ai_rest_add_line_items(WC_Order $order, $line_items, array &$warnings) 
         }
 
         $product_id = absint($entry['product_id'] ?? 0);
-        $quantity   = isset($entry['quantity']) ? (int) $entry['quantity'] : 1;
-        if ($quantity < 1) {
-            $quantity = 1;
-        }
+
+        // Never an (int) cast here: that silently turned 1.5 into 1, which is
+        // a wrong order with no error.
+        [$quantity, $quantity_changed] = ai_rest_line_quantity($entry['quantity'] ?? null);
 
         $product = $product_id ? wc_get_product($product_id) : false;
         if (!$product instanceof WC_Product) {
@@ -170,6 +220,18 @@ function ai_rest_add_line_items(WC_Order $order, $line_items, array &$warnings) 
                 /* translators: %s: product name. */
                 __('%s is out of stock and was added anyway.', 'ai-order-creator'),
                 $product->get_name()
+            );
+        }
+
+        // Said out loud rather than silently corrected: a quantity is money
+        // once it is multiplied by a price.
+        if ($quantity_changed) {
+            $warnings[] = sprintf(
+                /* translators: 1: product name, 2: quantity as submitted, 3: quantity stored. */
+                __('Quantity for %1$s was "%2$s"; stored as %3$s.', 'ai-order-creator'),
+                $product->get_name(),
+                is_scalar($entry['quantity']) ? (string) $entry['quantity'] : '',
+                ai_rest_quantity($quantity)
             );
         }
 

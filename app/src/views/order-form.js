@@ -25,6 +25,7 @@ import { ProductPicker } from './product-picker.js'
 import { LastOrderCard } from './last-order.js'
 import { normalizeBdPhone } from '../phone.js'
 import { reorderSource } from '../reorder.js'
+import { parseQuantity, formatQuantity, stepDown, stepUp } from '../quantity.js'
 
 /** Every field whose dirty state is tracked, in payload-key form. */
 const FIELDS = ['name', 'phone', 'address_1', 'state', 'status', 'customer_note']
@@ -61,11 +62,12 @@ function parseTypedAmount(text) {
  *   orderId: number|null,
  *   onClose: () => void,
  *   onOpenOrder: (id: number) => void,
+ *   onNewOrder?: () => void,
  *   reorderFrom?: object,
  *   signal?: AbortSignal,
  * }} options
  */
-export function OrderFormView({ orderId, onClose, onOpenOrder, reorderFrom, signal }) {
+export function OrderFormView({ orderId, onClose, onOpenOrder, onNewOrder, reorderFrom, signal }) {
   const state = {
     orderId: orderId ?? null,
     /** Fields the user has actually changed. Drives the partial update. */
@@ -253,6 +255,27 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, reorderFrom, sign
 
     openConfirmFor = id
     setMessage('Unsaved changes here. Tap Open again to discard them and open that order.', 'error')
+  }
+
+  /** Whether a second tap on New order would go ahead, once the first warned. */
+  let newConfirmArmed = false
+
+  /**
+   * Start a new, blank order from here, without going back to the list first.
+   *
+   * It replaces this form, so unsaved changes get the same two-step as opening
+   * the previous order: the first tap says what would be lost, through the
+   * status line, and only a second tap discards it. A clean form - including
+   * one that has just been saved - goes straight through.
+   */
+  function requestNewOrder() {
+    if (!isDirty() || newConfirmArmed) {
+      onNewOrder()
+      return
+    }
+
+    newConfirmArmed = true
+    setMessage('Unsaved changes here. Tap New order again to discard them and start a new one.', 'error')
   }
 
   /** The order id a second tap would reorder, once the first tap warned. */
@@ -497,7 +520,8 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, reorderFrom, sign
       product_id,
       name,
       price,
-      quantity: Math.max(1, quantity || 1),
+      // Fractional is normal - 0.5 must stay 0.5, not be lifted to 1.
+      quantity: parseQuantity(quantity) ?? 1,
       total,
     }
   }
@@ -512,11 +536,16 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, reorderFrom, sign
     return item.price === null ? null : item.price * item.quantity
   }
 
-  function setQuantity(item, quantity) {
-    const next = Math.max(1, quantity)
-    if (next === item.quantity) return
+  /**
+   * Apply a settled quantity to a row. Does not re-render the row, so it is
+   * safe to call while the quantity field is focused.
+   *
+   * @returns {boolean} Whether anything changed.
+   */
+  function applyQuantity(item, quantity) {
+    if (quantity === null || quantity === item.quantity) return false
 
-    item.quantity = next
+    item.quantity = quantity
 
     // Quantity always recalculates the total, as WooCommerce does.
     if (item.price !== null) {
@@ -524,9 +553,13 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, reorderFrom, sign
     }
 
     state.itemsDirty = true
-
-    renderItems()
     renderTotals()
+    return true
+  }
+
+  /** The − and + buttons. A tap, not typing, so re-rendering the row is fine. */
+  function stepQuantity(item, next) {
+    if (applyQuantity(item, next)) renderItems()
   }
 
   /**
@@ -560,6 +593,14 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, reorderFrom, sign
    */
   function onPriceBlur(item, rawText) {
     const text = rawText.trim()
+
+    // Focusing the field and leaving it must change nothing. A loaded price is
+    // total / quantity at full precision and only SHOWN rounded - 1000 / 1.5
+    // shows as 666.67 - so re-reading the shown text would turn the total
+    // into 666.67 x 1.5 = 1000.01 without anyone having typed a thing.
+    if (item.price !== null && text === formatAmount(item.price)) {
+      return text
+    }
 
     if (text === '') {
       item.price = null
@@ -631,22 +672,16 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, reorderFrom, sign
     for (const item of state.items) {
       const total = lineTotal(item)
 
-      const quantityValue = el('span', {
-        class: 'qty-value',
-        text: String(item.quantity),
-        role: 'status',
-        'aria-label': `Quantity ${item.quantity}`,
-      })
-
-      // Quantity has a floor of 1: the remove button is how a row goes away,
-      // so decrementing can never delete one by surprise.
+      // − steps by 1 and never reaches zero: Remove is how a row goes away, so
+      // decrementing can never delete one by surprise. From 1.5 it goes to
+      // 0.5; from 1 or below it is disabled.
       const minus = el('button', {
         type: 'button',
         class: 'qty-button',
         text: '−',
-        disabled: item.quantity <= 1,
+        disabled: stepDown(item.quantity) === null,
         'aria-label': 'Decrease quantity',
-        onClick: () => setQuantity(item, item.quantity - 1),
+        onClick: () => stepQuantity(item, stepDown(item.quantity)),
       })
 
       const plus = el('button', {
@@ -654,7 +689,42 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, reorderFrom, sign
         class: 'qty-button',
         text: '+',
         'aria-label': 'Increase quantity',
-        onClick: () => setQuantity(item, item.quantity + 1),
+        onClick: () => stepQuantity(item, stepUp(item.quantity)),
+      })
+
+      // What the row held when the field gained focus. An unparseable entry
+      // falls back to THIS, not to whatever half-typed figure parsed last.
+      let quantityOnFocus = item.quantity
+
+      // Quantity is typed like Price and Total: free text while typing, settled
+      // on blur. Fractional to 2dp, because the Decimal Product Quantity
+      // plugin lets WooCommerce store it; never zero or below. The figure is
+      // shown unpadded - "1", "1.5", "3.56" - since a quantity has no fixed
+      // decimals the way money does.
+      const quantityInput = el('input', {
+        type: 'text',
+        inputmode: 'decimal',
+        class: 'item-money-input item-qty-input',
+        value: formatQuantity(item.quantity),
+        'aria-label': `Quantity of ${item.name}`,
+        onFocus: () => { quantityOnFocus = item.quantity },
+        onInput: (event) => {
+          state.itemsDirty = true
+          // Not re-rendering the row: that would rebuild this input and drop
+          // the caret and the keyboard. Only the parts that follow from the
+          // quantity are updated.
+          if (applyQuantity(item, parseQuantity(event.target.value))) {
+            totalInput.value = item.total === null ? '' : formatAmount(item.total)
+            minus.disabled = stepDown(item.quantity) === null
+          }
+        },
+        onBlur: (event) => {
+          const parsed = parseQuantity(event.target.value)
+          applyQuantity(item, parsed ?? quantityOnFocus)
+          event.target.value = formatQuantity(item.quantity)
+          totalInput.value = item.total === null ? '' : formatAmount(item.total)
+          minus.disabled = stepDown(item.quantity) === null
+        },
       })
 
       // Both money fields are type=text with a numeric inputmode rather than
@@ -719,7 +789,10 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, reorderFrom, sign
           ]),
         ]),
         el('div', { class: 'item-foot' }, [
-          el('div', { class: 'qty-stepper' }, [minus, quantityValue, plus]),
+          el('div', { class: 'item-money-label item-qty-label' }, [
+            el('span', { text: 'Quantity' }),
+            el('div', { class: 'qty-stepper' }, [minus, quantityInput, plus]),
+          ]),
         ]),
       ]))
     }
@@ -1118,8 +1191,24 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, reorderFrom, sign
 
   const saveButton = el('button', { type: 'button', class: 'button primary', text: 'Save order' })
 
+  // At the TOP, in the header, as a plain link - while Save is the filled
+  // primary button pinned to the BOTTOM. The two sit at opposite ends of the
+  // screen in opposite styles on purpose: one keeps the work, the other can
+  // throw it away, and they must never be mistaken for each other.
+  const newOrderButton = onNewOrder
+    ? el('button', {
+        type: 'button',
+        class: 'button link',
+        text: '+ New order',
+        onClick: requestNewOrder,
+      })
+    : null
+
   function setBusy(busy) {
     saveButton.disabled = busy
+    // Leaving mid-save would not lose the order - writes are never aborted -
+    // but it would lose sight of it, and its new number, before it arrived.
+    if (newOrderButton) newOrderButton.disabled = busy
     parseButton.disabled = busy
     saveButton.textContent = busy
       ? 'Saving…'
@@ -1149,7 +1238,8 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, reorderFrom, sign
     return state.items.map((item) => {
       const line = {
         product_id: item.product_id,
-        quantity: item.quantity,
+        // A trimmed numeric string, like money: "1", "1.5", "3.56".
+        quantity: formatQuantity(item.quantity),
       }
 
       if (item.total !== null) {
@@ -1347,7 +1437,8 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, reorderFrom, sign
     statusSelect.value = status
 
     state.items = (Array.isArray(order.line_items) ? order.line_items : []).map((line) => {
-      const quantity = Math.max(1, Number(line.quantity) || 1)
+      // The API sends a trimmed numeric string, and fractional is normal.
+      const quantity = parseQuantity(line.quantity) ?? 1
       const total = toNumber(line.total)
       return makeItem({
         product_id: Number(line.product_id) || 0,
@@ -1358,6 +1449,10 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, reorderFrom, sign
         // reports per-line figures only, never a unit price, and deriving from
         // `total` rather than `subtotal` is what makes price x quantity equal
         // the total exactly as displayed.
+        //
+        // Kept at full precision even when it does not come out to 2dp -
+        // 1000 / 1.5 is 666.666... - and only SHOWN rounded, so the total
+        // stays exactly what the server holds until someone edits a figure.
         price: total === null ? null : total / quantity,
       })
     })
@@ -1460,6 +1555,7 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, reorderFrom, sign
           type: 'button', class: 'button link', text: '‹ Orders', onClick: onClose,
         }),
         title,
+        newOrderButton,
       ]),
     ]),
     el('main', { class: 'form-main' }, [
