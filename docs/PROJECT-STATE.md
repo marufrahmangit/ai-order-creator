@@ -4,7 +4,9 @@ Working brief for resuming this project cold. Present state only — git log is 
 
 Plugin header: **Order Ops v7.1**, Updated 2026-10-08. App **0.11.0**, named **CartMix Shop
 Manager** to staff — see "Names" under Product decisions; the plugin is still "Order Ops".
-**Staging runs 7.0. Live runs 6.6.** Neither has 7.1.
+**Live runs 7.1. Staging was last recorded at 7.0.** Live's REST layer has now been
+called: `POST /parse` was verified there at 7.1 (see Verified). Nothing else in 6.7-7.1
+has been exercised on live yet.
 
 **Build steps 1 through 11 are built AND verified on staging** — the API layer by real
 requests, the app in a browser, including as an installed standalone PWA. Steps 8-11
@@ -19,13 +21,12 @@ Show/Hide on the login screen (app 0.10.0) — are built and pass every local ch
 have not run on a server or in a browser.** 7.1 is a correctness fix, not a nicety: the *Decimal Product Quantity for
 WooCommerce* plugin is now active on BOTH sites, and every plugin up to 7.0 `(int)`-casts
 quantity, so **any fractional quantity sent through the app on either site today is
-silently saved as a whole number.** Upload 7.1 to staging first, and to live soon after.
+silently saved as a whole number.** Live now has 7.1; staging, as last recorded, does not.
 
-**Live is five plugin versions behind the repo.** 6.7 through 7.1 have never been
-uploaded there. They collapse into one upload: 6.7 added `GET /customers/last-order`,
-6.8 corrected it by removing a parameter, 6.9 added `shipping_rates` to `/meta`, 7.0
-fixed a shipping data-correctness bug, and 7.1 lets fractional quantities through.
-**Only 7.1 needs to go up.**
+**Live jumped from 6.6 to 7.1 in one upload**, taking 6.7 (`GET /customers/last-order`),
+6.8 (its correction), 6.9 (`shipping_rates` in `/meta`), 7.0 (the shipping
+data-correctness fix) and 7.1 (fractional quantities) together. Only `/parse` has been
+confirmed there so far.
 
 **7.0 carries a data fix that existing orders do not get for free.** Any order whose
 district was cleared while 6.x was running still holds a stale shipping line and a total
@@ -66,19 +67,19 @@ order, because each step depends on the one before:
 2. Verify 7.1 and app 0.7.0 against staging from `npm run dev` — the checks are listed
    under Unverified / open. **The plugin must be uploaded before the app is used for
    this**: app 0.6.0+ against 7.0 still has every fractional quantity `(int)`-cast.
-3. Upload **7.1** to live and confirm `/ping` reports `7.1`. This is the first time live's
-   REST layer will have been called at all.
+3. ~~Upload 7.1 to live~~ — **done**; live runs 7.1, and `/parse` is verified there.
+   Confirm `/ping` reports `7.1` when next on live, since only `/parse` has been called.
 4. Find and re-save any live order with an empty billing state and a shipping line —
    the 6.x stale-shipping defect. Unverified / open says how to find them.
 5. Stand up `ops.cartmixbd.com`, then `npm run build` in `app/` and upload `app/dist/`.
 6. Change `ai_app_origin` to `https://ops.cartmixbd.com`. **This breaks local development
    until changed back** — it holds one origin, not a list.
-7. Decide whether the app points at live. **Live's REST layer has never been exercised**,
-   and `ai_app_origin` is expected to be empty there, which means no browser can reach
+7. Decide whether the app points at live. **Live's REST layer has been exercised only by
+   `POST /parse`**, and `ai_app_origin` is expected to be empty there, which means no browser can reach
    it. Confirm that before assuming either way: empty is the safe state, and it is also
    what would make a first attempt from the app fail with no CORS headers.
 
-Steps 1-4 can be done today. Steps 5-7 need the subdomain.
+Steps 1, 2 and 4 can be done today. Steps 5-7 need the subdomain.
 
 **Two traps when testing the production build on localhost, both of which have already
 cost a debugging round:**
@@ -100,9 +101,8 @@ cost a debugging round:**
 - `ops.cartmixbd.com` is **not stood up**. The app is served from `npm run dev`.
 - `ai_app_origin` on staging is `http://localhost:5173` and **must change at deploy**.
   It holds one origin, so flipping it breaks local development until flipped back.
-- **Live runs 6.6 and needs 7.0.** The `aioc/v1` routes from 6.6 exist there, but
-  **nothing on live has ever been called**, and the 6.7+ routes and fixes are absent.
-  Every verification in this document was against staging.
+- **Live runs 7.1.** Its REST layer has been called only by `POST /parse` — every other
+  verification in this document was against staging.
 - **`ai_app_origin` is expected to be EMPTY on live**, which means
   `ai_rest_cors_headers()` grants nothing and no browser can reach the API. That is the
   safe default and the reason the app cannot accidentally talk to live today. Worth
@@ -124,11 +124,12 @@ parser becomes one feature inside it, not the whole tool.
 
 ## Environment
 
-- Live: cartmixbd.com — **plugin 6.6**, upgraded when the parser fixes were deployed.
-  **It needs 7.0.** The 6.6 `aioc/v1` routes exist there, but **live's REST layer has
-  never been exercised**: every verification recorded here was done against staging.
-  `ai_app_origin` is expected to be empty on live, so no browser can reach the API there.
-- Staging: staging.cartmixbd.com — **plugin 7.0**, where everything is tested first
+- Live: cartmixbd.com — **plugin 7.1**. Its REST layer has been called only by
+  `POST /parse`, verified at 7.1; everything else recorded here was done against
+  staging. `ai_app_origin` is expected to be empty on live, so no browser can reach the
+  API there — the `/parse` checks did not need one.
+- Staging: staging.cartmixbd.com — **plugin 7.0 as last recorded**, where everything is
+  tested first
 - WooCommerce 11.0.1, HPOS enabled, table prefix `wp_`, hosted cPanel/MySQL
 - Products are post status `private`; the storefront is unused, orders are taken
   internally. Product queries must include publish AND private.
@@ -311,6 +312,22 @@ parser becomes one feature inside it, not the whole tool.
     requiring it without `ABSPATH` defined exits silently with status 0.
   - The Groq path still cannot be exercised locally: it needs network and a key. Only
     the deterministic pipeline is reachable, which is where the parsing logic lives.
+  - **Parser test inputs need REALISTIC names.** `ai_is_probable_name_line()` is meant to
+    reject lines that are not a personal name, and it correctly rejects a placeholder
+    like "Test Name". The deterministic parse then returns an EMPTY name — confirmed
+    locally: "Test Name" gives `name: ""` with phone, address and district all correct,
+    "Rahim Uddin" in the same message gives `name: "Rahim Uddin"`. An empty name is one
+    of the triggers for the Groq fallback (`ai_should_call_ai()`), whose answer is merged
+    in, so through `/parse` a placeholder name means testing Groq rather than the parser
+    — which is the most likely source of the "address returned as the name" seen on
+    live with "Test Name" (not reproducible here: Groq needs a key). That looked like a
+    bug in the name extractor and was not one. Use a real-looking name such as "Rahim
+    Uddin" unless the name rule itself is what is being tested.
+  - Equally, **a district test has to leave the district OUT to exercise the fuzzy
+    matcher.** `ai_extract_state_from_text()` runs an exact substring pass over the whole
+    text first, and only falls back to fuzzy matching when no alias appears anywhere. An
+    input that names the district in full ("Sreepur, Gazipur") is decided by the exact
+    pass, and says nothing about the fuzzy one.
 - App tests: `npm test` in `app/`. No dependencies, no browser, **fourteen suites, 421
   assertions**. Some read the real source and lift part of it, so they cannot drift from
   the code silently; the rest run a view against a crude DOM shim, which is the only
@@ -1211,7 +1228,8 @@ by real requests against staging, the app in a browser as an installed PWA.
 
 **Rows 8 to 11 came afterwards, and are verified too** — on staging at 6.8 and 7.0, and
 in a browser. The specifics are under Verified; the few behaviours those checks did not
-reach are under Unverified / open. None of rows 8-11 is on live yet.
+reach are under Unverified / open. Rows 8-11 are installed on live with 7.1 but
+unverified there; only `/parse` has been called on live.
 
 **Rows 12-17 are the unverified edge.** 12 needs 7.1 uploaded before it can be exercised
 at all; 13-17 are app-only and need only a browser. All pass locally — `php -l`, the
@@ -1502,6 +1520,20 @@ plugin registers simply appears.
   (`admin=0`). Not conclusively proven, so it is recorded under Environment as a
   troubleshooting step rather than as a known mechanism.
 
+`POST /parse` on **LIVE** at **7.1** — the first requests verified against live rather than
+staging, so live's 7.1 parser is confirmed working end to end:
+
+- `"Kishoreganj Sadar, Kishoreganj"` → **BD-26 Kishoreganj**, 150.00 Outside Dhaka.
+- `"Sreepur, Gazipur"` → **BD-18 Gazipur**, 120.00.
+- A message with a realistic name ("Rahim Uddin") returns the name, address and
+  district correctly and separately. An earlier run with the literal "Test Name" had
+  seemed to put the address in the name; that was the test input, not the parser — see
+  "Parser test inputs need REALISTIC names" under Conventions.
+- Both district results match the current code run locally under PHP 8.3 with
+  WooCommerce's 64-row BD list. Both name their district in full, so both are decided
+  by the exact-alias pass; the fuzzy pass's misroutes, which need the district left
+  out, are a separate item under Unverified / open and still reproduce.
+
 Parser fixes (6.5) — verified LOCALLY against a real PHP 8.3.35 with WooCommerce's
 64-row BD state list stubbed in, not on staging. Every PHP file in the plugin also
 parses clean under `php -l`, which had never been checked before.
@@ -1549,8 +1581,10 @@ shipping fix — **confirmed on staging and in a browser**. `/ping` reports `7.0
   missed; and variation-level SKUs are findable only by exact match via
   `wc_get_product_id_by_sku()`, the parent-first search never reaching a partial one.
   Parent/simple SKU partial matching IS verified.
-- **Nothing in 6.7-7.1 has run on LIVE, and 7.1 has not run anywhere.** Live is on 6.6;
-  staging is on 7.0 and verified up to there. Uploading 7.1 covers all five.
+- **On live (7.1), only `POST /parse` has been exercised.** The 6.7-7.1 routes and fixes
+  are installed there but unverified: last-order lookup, `shipping_rates`, the 7.0
+  shipping fix and decimal quantities. Staging, last recorded at 7.0, has not run 7.1
+  at all.
 - **Decimal quantities (7.1 / app 0.6.0) are unexercised against WooCommerce.** Verified
   only by running `ai_rest_line_quantity()` under a real PHP with both filters stubbed,
   and by the app suites. On staging, check:
@@ -1637,22 +1671,32 @@ shipping fix — **confirmed on staging and in a browser**. `/ping` reports `7.0
   the storefront is unused and there are no abandoned carts, so nothing to fix today, but
   the default is wider than WooCommerce's. The app filters the status out of its dropdown;
   the list query does not.
-- **The fuzzy Levenshtein fallback in `ai_extract_state_from_text()` misroutes real
-  place names, and that is the actual cause of the reported Jashore mismatch.** It scans
-  every word of 5+ characters against every ASCII alias, allowing one edit at 5-6
-  characters and two at 7+, and returns on the first word that matches anything.
-  Confirmed live misroutes: **`kishore` → Jashore** (so Kishoreganj written as
-  "Kishore"), **`sreepur` → Sherpur**, **`kaliganj` → Habiganj**, **`shibpur` →
-  Sherpur**. `mohakhali` → Noakhali was the same shape and is now fixed by an exact
-  alias; the rest are not. An exact alias always beats the fuzzy pass, so adding one is
-  the cheap fix per name — but the general problem is the two-edit budget on seven-letter
-  aliases, which is simply too loose for Bangladeshi place names that differ by two
-  letters. Worth capping at one edit and measuring what breaks.
+- **The fuzzy fallback in `ai_extract_state_from_text()` misroutes a place written
+  WITHOUT its district — and only then.** Matching is correct whenever the district is
+  named: the exact-alias pass runs first over the whole text and wins, which is what
+  live confirmed at 7.1 ("Kishoreganj Sadar, Kishoreganj" → BD-26, "Sreepur, Gazipur" →
+  BD-18). The fuzzy pass runs only when no alias appears anywhere; it scans every word
+  of 5+ characters against every ASCII alias, allowing one edit at 5-6 characters and
+  two at 7+, and returns on the first word that matches anything. **These inputs, with
+  no district in them, misroute on the current code** (run locally under PHP 8.3 with
+  WooCommerce's BD list, after the live checks):
+  - `"Kishore"` and `"House 5, Kishore"` → **Jashore** (Kishoreganj abbreviated)
+  - `"Sreepur"` and `"Sreepur bazar"` → **Sherpur**
+  - `"Kaliganj"` → **Habiganj**
+  - `"Shibpur"` → **Sherpur**
+
+  Controls behave: "Jessore" and "Joshore" → Jashore, which is what the fuzzy pass is
+  for. `mohakhali` → Noakhali was the same shape and is fixed by an exact alias. How
+  often staff messages omit the district is not known; the reported Jashore mismatch is
+  the only observed case. An exact alias is the cheap fix per name; the general one is
+  the two-edit budget on seven-letter aliases, which is loose for place names that
+  differ by two letters. Worth capping at one edit and measuring what breaks.
 - **`Sreepur` and `Kaliganj` are ambiguous and deliberately unmapped.** Sreepur names an
   upazila in Gazipur and in Magura; Kaliganj in Gazipur, Satkhira, Jhenaidah and
   Lalmonirhat. Mapping either to Gazipur would assert a district the text never states.
-  Both currently resolve WRONGLY via the fuzzy pass, so "unmapped" is not neutral here —
-  it leaves a confidently wrong answer. Decide between adding them to Gazipur anyway
+  Written WITHOUT a district, both currently resolve WRONGLY via the fuzzy pass (see the
+  item above), so "unmapped" is not neutral there — it leaves a confidently wrong
+  answer. Written with one, as in "Sreepur, Gazipur", they are right. Decide between adding them to Gazipur anyway
   (most likely for a Dhaka-based store) and tightening the fuzzy matcher so they fall
   through to unresolved.
 - **WooCommerce's own BD state labels leak trailing whitespace into the alias map.**
@@ -1727,7 +1771,7 @@ shipping fix — **confirmed on staging and in a browser**. `/ping` reports `7.0
 - **Recorded here but NOT verifiable from this repo.** Everything below is written down
   because it was observed once; none of it can be re-checked by reading the code, so
   treat it as a claim with a date on it rather than a fact:
-  - **Which plugin version each site runs** (live 6.6, staging 7.0). Only
+  - **Which plugin version each site runs** (live 7.1, staging 7.0 as last recorded). Only
     `GET /aioc/v1/ping` can answer this. Check it before trusting any other statement
     about the servers.
   - **`ai_app_origin`'s value on either site** — `http://localhost:5173` on staging,
