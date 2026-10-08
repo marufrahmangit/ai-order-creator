@@ -2,6 +2,25 @@
 
 All notable changes to AI Order Creator are documented in this file.
 
+## App 0.7.0
+
+App only. The plugin is unchanged at 7.1.
+
+- **Fixed: "‹ Orders" discarded a dirty form on one tap.** The header link called `onClose` directly, so going back to the list, the most common way out of the form, threw away a half-filled order with no warning. It now uses the same two-tap guard as "+ New order" and the last-order card's "Open #N": with unsaved changes the first tap warns through the status line and the second goes back. A clean form goes straight back.
+- **One guard for every exit.** The three exits used to keep their own "armed" flags. They now go through a single `guardedExit()` with one shared slot, which fixes two lingering-warning holes:
+  - A warning only licenses the exit it was shown for. Tapping "‹ Orders" once and then "+ New order" warns again rather than starting a new order.
+  - The slot is cleared whenever the form is refilled from the server. Before, a warning shown before a save stayed armed, and a single later tap would discard edits made after the save.
+- **Audited every way out of a dirty form**; the result is recorded in `docs/PROJECT-STATE.md`.
+  - **Guarded:** ‹ Orders, Open #N, + New order.
+  - **Deliberately not guarded:**
+    - Trash, which has its own confirmation and removes the order the edits belonged to.
+    - A 401 sign-out, after which nothing could be saved anyway.
+  - **Unguarded and not fixable here:**
+    - The browser or hardware back button. The app pushes no history entries, so back leaves the app entirely, and only a `beforeunload` prompt could intercept it. That was decided against: it also fires on reload and tab close, with a generic message no browser lets the page word.
+    - The update banner's **Reload**, which discards the form. It is recorded as open.
+- **New `app/test/exit-guards.test.mjs`**, 23 checks. It covers clean and dirty behaviour for each guarded exit, that one exit's warning does not license another, that a save clears the warning, and that Trash goes through on its own confirmation. It also asserts that no `beforeunload` handler exists anywhere in `src/`. Confirmed to fail when the header link is pointed back at `onClose`, and when the reset on save is removed. The open-previous-order guard had no coverage before this.
+- **`npm test`: 12 suites, 312 assertions.** `SHELL_VERSION` is bumped to `v11`.
+
 ## 7.1
 
 - **Fixed: fractional line-item quantities were silently truncated, in both directions.** The *Decimal Product Quantity for WooCommerce* plugin (wpgear) is now active on staging and live, and lets WooCommerce store a quantity of 1.5. This plugin did not let it through:

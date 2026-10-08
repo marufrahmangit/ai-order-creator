@@ -2,7 +2,7 @@
 
 Working brief for resuming this project cold. Present state only — git log is the history.
 
-Plugin header: **Order Ops v7.1**, Updated 2026-10-08. App **0.6.0**.
+Plugin header: **Order Ops v7.1**, Updated 2026-10-08. App **0.7.0**.
 **Staging runs 7.0. Live runs 6.6.** Neither has 7.1.
 
 **Build steps 1 through 11 are built AND verified on staging** — the API layer by real
@@ -10,9 +10,9 @@ requests, the app in a browser, including as an installed standalone PWA. Steps 
 came after the original seven-step plan and were verified at 6.8 and 7.0; what those
 checks did NOT cover is listed under Unverified / open.
 
-**Steps 12 and 13 — decimal quantities (7.1 / app 0.6.0) and New order from the form
-(app 0.6.0) — are built and pass every local check, but have not run on a server or in a
-browser.** 7.1 is a correctness fix, not a nicety: the *Decimal Product Quantity for
+**Steps 12-14 — decimal quantities (7.1 / app 0.6.0), New order from the form (app
+0.6.0) and the unsaved-changes guard on every exit from the form (app 0.7.0) — are built
+and pass every local check, but have not run on a server or in a browser.** 7.1 is a correctness fix, not a nicety: the *Decimal Product Quantity for
 WooCommerce* plugin is now active on BOTH sites, and every plugin up to 7.0 `(int)`-casts
 quantity, so **any fractional quantity sent through the app on either site today is
 silently saved as a whole number.** Upload 7.1 to staging first, and to live soon after.
@@ -39,10 +39,10 @@ list below.
 say what exists, what is proven, and what is merely written down.**
 
 **There is no feature work queued.** Everything in the Build steps table is built and
-passes its checks locally; steps 1-11 are verified on staging, 12-13 are not yet. Two of
+passes its checks locally; steps 1-11 are verified on staging, 12-14 are not yet. Two of
 those checks are in the repo and one is not:
 
-- **`npm test` in `app/`** — eleven suites, 289 assertions. In the repo. Run this first.
+- **`npm test` in `app/`** — twelve suites, 312 assertions. In the repo. Run this first.
 - **`php -l` over all 27 PHP files** — needs the portable PHP described under
   Conventions, which is not in the repo either but takes one download to set up.
 - **A contract check** that greps the real PHP and JS source and asserts every field
@@ -59,9 +59,9 @@ order, because each step depends on the one before:
 
 1. Upload plugin **7.1** to STAGING and confirm `GET /aioc/v1/ping` reports `7.1`. A
    stale version here causes misleading 404s on new routes, so do not skip the check.
-2. Verify 7.1 and app 0.6.0 against staging from `npm run dev` — the checks are listed
+2. Verify 7.1 and app 0.7.0 against staging from `npm run dev` — the checks are listed
    under Unverified / open. **The plugin must be uploaded before the app is used for
-   this**: app 0.6.0 against 7.0 still has every fractional quantity `(int)`-cast.
+   this**: app 0.6.0+ against 7.0 still has every fractional quantity `(int)`-cast.
 3. Upload **7.1** to live and confirm `/ping` reports `7.1`. This is the first time live's
    REST layer will have been called at all.
 4. Find and re-save any live order with an empty billing state and a shipping line —
@@ -242,7 +242,7 @@ parser becomes one feature inside it, not the whole tool.
     requiring it without `ABSPATH` defined exits silently with status 0.
   - The Groq path still cannot be exercised locally: it needs network and a key. Only
     the deterministic pipeline is reachable, which is where the parsing logic lives.
-- App tests: `npm test` in `app/`. No dependencies, no browser, **eleven suites, 289
+- App tests: `npm test` in `app/`. No dependencies, no browser, **twelve suites, 312
   assertions**. Some read the real source and lift part of it, so they cannot drift from
   the code silently; the rest run a view against a crude DOM shim, which is the only
   thing in this project that executes one at all.
@@ -320,6 +320,13 @@ parser becomes one feature inside it, not the whole tool.
     the save payload, checks the list's item-count wording, and asserts no
     `Math.max(1, … quantity)` clamp survives in `src/`. Confirmed to fail when the old
     clamp, the old Price blur or an unguarded New order is put back.
+  - `test/exit-guards.test.mjs` — every way out of a dirty order form. For each guarded
+    exit (‹ Orders, Open #N, + New order): a clean form goes straight out, a dirty one
+    warns on the first tap and goes on the second. Also that one exit's warning does not
+    license another, that a save clears the warning, that Trash goes through on its own
+    confirmation, and that no `beforeunload` handler exists in `src/`. Confirmed to fail
+    when the header link is pointed back at `onClose`, and when the reset on save is
+    removed.
   - The DOM shim and module loader the view tests share live in `test/dom-shim.mjs`.
     A new module under `src/` must be listed in its `VIEW_MODULES` or the view suites
     fail to resolve it.
@@ -743,12 +750,43 @@ parser becomes one feature inside it, not the whole tool.
   pinned to the bottom. Opposite ends, opposite styles, deliberately — one keeps the
   work, the other can discard it.
   - With unsaved changes the first tap warns through the status line and the second
-    goes ahead — the same two-step as opening the previous order from the
-    repeat-customer card. A clean form, including one just saved, goes straight through.
+    goes ahead — the same guard as every other exit; see the next entry. A clean form,
+    including one just saved, goes straight through.
   - Disabled while a save is in flight: the write would still complete, but the staff
     member would lose sight of the new order and its number.
   - `main.js` resets its route key for this one action. From an unsaved new order the
     route is already `form:new`, so the repeat-tap guard would otherwise swallow the tap.
+- **Every way out of a dirty order form either warns first or deliberately does not.**
+  "Dirty" is `isDirty()`: any field touched, or the items or fees edited, since the form
+  was last filled from the server. A field changed and put back still counts. That is the
+  same rule the save payload uses, and it errs toward a warning.
+  - **The guard is a two-tap, not a dialog.** The first tap puts "Unsaved changes here.
+    Tap X again to…" in the status line; a second tap on the SAME exit goes. One
+    `guardedExit()` with ONE shared armed slot serves every exit, so a warning licenses
+    only the exit it was shown for (arming ‹ Orders does not wave + New order through).
+    The slot is cleared whenever the form is refilled from the server, so a warning
+    shown before a save cannot discard edits made after it.
+  - **Guarded:** "‹ Orders" (from app 0.7.0; before that one tap discarded the form, on
+    the most common way out), the last-order card's "Open #N", and "+ New order".
+  - **Not an exit, so not guarded here:** the card's Reorder replaces the form's items
+    rather than leaving, and has its own replace-confirmation. The product picker is a
+    sheet over the form, which stays mounted.
+  - **Deliberately not guarded:**
+    - **Trash.** It already asks for its own confirmation, and the unsaved edits belong
+      to an order that is going away. A second warning would be noise.
+    - **A 401.** `api.js` drops the credential and the app routes to login. Nothing in
+      the form could be saved at that point anyway; a save would 401 too.
+  - **Unguarded, and not guardable from inside the form:**
+    - **The browser or hardware back button.** There is no router and the app pushes no
+      history entries, so back leaves the app entirely, and in a standalone PWA on
+      Android it closes it. Only a `beforeunload` prompt could intercept that.
+    - **The update banner's Reload** — see Unverified / open.
+  - **No `beforeunload` handler, by decision.** It fires on reload and tab close too, and
+    browsers show a generic message the page cannot word, so it would be noise on every
+    deliberate reload rather than help on the accidental one. `exit-guards.test.mjs`
+    asserts none exists. If back-button loss turns out to matter in practice, the fix is
+    real history handling: a pushed entry per screen and a guarded `popstate`. That is
+    the router `main.js` already says it will need for deep links, not a prompt.
 - **The order form edits fees, including negative ones.** A fee row is a name input and
   an amount input; the name may be empty and the amount may be negative, with nothing
   blocking a minus sign or taking an absolute value. The provisional total is items plus
@@ -921,6 +959,7 @@ parser becomes one feature inside it, not the whole tool.
 | 11 | Shipping cleared with the district; save bar fixed | done, **verified on staging and in a browser** at 7.0 | 7.0 / app 0.5.0 |
 | 12 | Decimal quantities to 2dp; quantity as an editable field | done, **not yet on staging, unverified in a browser** | 7.1 / app 0.6.0 |
 | 13 | New order from the order form | done, **unverified in a browser** | app 0.6.0 |
+| 14 | Unsaved-changes guard on ‹ Orders; one guard for every exit | done, **unverified in a browser** | app 0.7.0 |
 
 **Steps 1-7 are the original plan, and all seven are built and verified** — the API layer
 by real requests against staging, the app in a browser as an installed PWA.
@@ -929,9 +968,9 @@ by real requests against staging, the app in a browser as an installed PWA.
 in a browser. The specifics are under Verified; the few behaviours those checks did not
 reach are under Unverified / open. None of rows 8-11 is on live yet.
 
-**Rows 12 and 13 are the unverified edge.** 12 needs 7.1 uploaded before it can be
-exercised at all; 13 is app-only and needs only a browser. Both pass locally — `php -l`,
-the PHP quantity rule run under a real PHP with both stock filters, eleven app suites —
+**Rows 12-14 are the unverified edge.** 12 needs 7.1 uploaded before it can be exercised
+at all; 13 and 14 are app-only and need only a browser. All pass locally — `php -l`, the
+PHP quantity rule run under a real PHP with both stock filters, twelve app suites —
 which is evidence the code is coherent, not that it works against WooCommerce.
 
 **The API layer is complete and signed off.** Step 3 at 5.6/5.7 with 3d/3e verified at
@@ -1289,11 +1328,18 @@ shipping fix — **confirmed on staging and in a browser**. `/ping` reports `7.0
 - **New order from the form is unseen in a browser.** Check that it reads as distinct
   from Save on a phone, that the two-tap warning is visible without scrolling, and that
   tapping it on a just-saved new order opens a blank form rather than doing nothing.
-- **`‹ Orders` in the form's header has NO unsaved-changes guard,** and never had one.
-  It calls `showOrders()` directly, so a half-filled form is discarded on one tap. The
-  two-step guard exists only on opening the previous order and, from 0.6.0, on New
-  order. Noticed while adding the latter; not changed, because it was not asked for —
-  but it is the same risk, and probably the more common tap.
+- **The exit guards are unseen in a browser** (app 0.7.0). Check that the warning on
+  ‹ Orders is visible without scrolling: the status line sits at the top of the form, but
+  a staff member tapping back from the bottom of a long form may be scrolled well away
+  from it, and a warning nobody sees reads as a dead button.
+- **The update banner's Reload discards a dirty order form.** `pwa.js` reloads the page
+  when it is tapped, and it knows nothing about the form. It is a deliberate tap, never
+  automatic, and it appears only after a deploy, so the exposure is small — but it is the
+  one remaining in-app way to lose a half-filled order without a warning. The fix is a
+  small hook: the form registers its `isDirty()` with `pwa.js`, and the banner takes the
+  same two-tap. Not done, because it reaches outside the form.
+- **The browser and hardware back buttons leave the app with no warning.** By decision
+  — see the exit-guard entry under Product decisions — not an oversight.
 - **How many orders carry a stale shipping line is NOT KNOWN, and cannot be answered from
   this repo** — on live especially. The 7.0 fix stops new ones; it does not repair
   existing ones, each of which needs one save (confirmed on staging with order 11361,

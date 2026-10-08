@@ -1,6 +1,6 @@
 {
   "name": "order-ops-app",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "type": "module",
   "description": "Mobile-first PWA for WooCommerce order ops. Talks to the aioc/v1 REST namespace served by the Order Ops plugin.",

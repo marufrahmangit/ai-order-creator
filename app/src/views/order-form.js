@@ -238,44 +238,59 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, onNewOrder, reord
     return state.dirty.size > 0 || state.itemsDirty || state.feesDirty
   }
 
-  /** The order id a second tap would open, once the first tap warned. */
-  let openConfirmFor = null
+  /**
+   * Which way out a second tap would take, once the first tap warned - or null.
+   *
+   * ONE slot shared by every exit, so a warning only ever licenses the exit it
+   * was shown for: arming "‹ Orders" and then tapping "+ New order" warns
+   * again rather than going. Cleared whenever the form is (re)filled from the
+   * server, so a warning shown before a save cannot wave through a later exit
+   * from edits made after it.
+   */
+  let armedExit = null
 
   /**
-   * Opening the previous order navigates away, which discards whatever is in
-   * this form. Worth one confirmation rather than losing a half-typed order to
-   * a mistap - the same two-step the trash action uses, through the status line
-   * rather than a second confirm UI.
+   * Every way out of this form that would discard unsaved work goes through
+   * here. With nothing unsaved it goes straight away. Otherwise the first tap
+   * says what would be lost, through the status line rather than a second
+   * confirm UI, and only a second tap on the SAME exit goes ahead.
+   *
+   * Deliberately not routed through here: the trash action, which has its own
+   * confirmation and removes the order the edits belonged to, and a 401, after
+   * which nothing in the form could be saved anyway. See docs/PROJECT-STATE.md
+   * for the full list of exits and why.
+   *
+   * @param {string} key      Identifies the exit, e.g. 'close' or 'open:412'.
+   * @param {() => void} go   The navigation itself.
+   * @param {string} howTo    The second half of the warning.
    */
-  function requestOpenOrder(id) {
-    if (!isDirty() || openConfirmFor === id) {
-      onOpenOrder(id)
+  function guardedExit(key, go, howTo) {
+    if (!isDirty() || armedExit === key) {
+      armedExit = null
+      go()
       return
     }
 
-    openConfirmFor = id
-    setMessage('Unsaved changes here. Tap Open again to discard them and open that order.', 'error')
+    armedExit = key
+    setMessage(`Unsaved changes here. ${howTo}`, 'error')
   }
 
-  /** Whether a second tap on New order would go ahead, once the first warned. */
-  let newConfirmArmed = false
+  /** "‹ Orders": back to the list. The most common way out, so the most likely to lose work. */
+  function requestClose() {
+    guardedExit('close', onClose, 'Tap ‹ Orders again to discard them and go back to the list.')
+  }
+
+  /** The last-order card's "Open #N". */
+  function requestOpenOrder(id) {
+    guardedExit(`open:${id}`, () => onOpenOrder(id), 'Tap Open again to discard them and open that order.')
+  }
 
   /**
-   * Start a new, blank order from here, without going back to the list first.
-   *
-   * It replaces this form, so unsaved changes get the same two-step as opening
-   * the previous order: the first tap says what would be lost, through the
-   * status line, and only a second tap discards it. A clean form - including
-   * one that has just been saved - goes straight through.
+   * "+ New order": start a blank order without going back to the list first.
+   * It replaces this form, so it is an exit like any other.
    */
   function requestNewOrder() {
-    if (!isDirty() || newConfirmArmed) {
-      onNewOrder()
-      return
-    }
-
-    newConfirmArmed = true
-    setMessage('Unsaved changes here. Tap New order again to discard them and start a new one.', 'error')
+    guardedExit('new', onNewOrder, 'Tap New order again to discard them and start a new one.')
   }
 
   /** The order id a second tap would reorder, once the first tap warned. */
@@ -1179,6 +1194,9 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, onNewOrder, reord
     setMessage('Moving to trash…')
     try {
       await trashOrder(state.orderId)
+      // NOT requestClose(): unsaved edits to an order that has just been
+      // trashed have nothing left to belong to, and the trash action already
+      // asked for its own confirmation.
       onClose()
     } catch (error) {
       if (error?.status === 401) return
@@ -1479,6 +1497,8 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, onNewOrder, reord
     state.dirty.clear()
     state.itemsDirty = false
     state.feesDirty = false
+    // A warning was about edits that are now saved or replaced.
+    armedExit = null
 
     title.textContent = order.number ? `Order #${order.number}` : 'Order'
     pasteBox.open = false
@@ -1552,7 +1572,8 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, onNewOrder, reord
     el('header', { class: 'app-header' }, [
       el('div', { class: 'header-row' }, [
         el('button', {
-          type: 'button', class: 'button link', text: '‹ Orders', onClick: onClose,
+          // Guarded: going back to the list discards anything unsaved.
+          type: 'button', class: 'button link', text: '‹ Orders', onClick: requestClose,
         }),
         title,
         newOrderButton,
