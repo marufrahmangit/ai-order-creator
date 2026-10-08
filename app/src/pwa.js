@@ -51,12 +51,42 @@ function isIos() {
 }
 
 let current = null
+let currentObserver = null
+
+/** The banner's distance from the bottom edge, and the gap kept above it. Match .pwa-banner. */
+const BANNER_OFFSET_PX = 12
+const BANNER_GAP_PX = 12
+
+/**
+ * How much room, from the bottom edge (safe area excluded), anything else
+ * pinned to the bottom must leave for the banner: its real height plus its
+ * offset plus a gap. Written to --pwa-banner-space on body, which the order
+ * list's floating button AND the order form's save bar both read.
+ *
+ * MEASURED, not assumed. On a phone the banner wraps - text over buttons - and
+ * the unsaved-changes wording wraps further, so a fixed figure either wastes
+ * space on a wide screen or, worse, leaves Save under the banner on a narrow
+ * one. The stylesheet carries a default for the moment before layout.
+ */
+function updateBannerSpace() {
+  if (!current) return
+  const height = current.getBoundingClientRect?.().height ?? current.offsetHeight
+  // Not laid out yet (or no layout at all, as in the tests): keep the
+  // stylesheet's default rather than writing 24px and covering Save.
+  if (!(height > 0)) return
+  document.body.style?.setProperty(
+    '--pwa-banner-space',
+    `${Math.ceil(height) + BANNER_OFFSET_PX + BANNER_GAP_PX}px`,
+  )
+}
 
 /**
  * One banner at a time, pinned to the bottom of the viewport.
  *
- * While it is up, body carries a class so the order list's floating action
- * button lifts clear of it instead of being covered.
+ * While it is up, body carries a class and the banner's measured clearance
+ * (--pwa-banner-space), so everything else pinned to the bottom - the order
+ * list's floating button and the order form's save bar - lifts clear of it
+ * instead of being covered. One mechanism for both; see styles.css.
  *
  * onAction may return false to keep the banner up - the update banner does,
  * when Reload only warned. The returned handle lets the caller reword it.
@@ -100,15 +130,31 @@ function showBanner({ text, actionLabel, onAction, onDismiss }) {
   document.body.append(banner)
   document.body.classList.add('has-pwa-banner')
 
+  // Re-measured whenever the banner's size changes - a rotation, or Reload
+  // rewording it into the longer unsaved-changes warning.
+  updateBannerSpace()
+  if (typeof ResizeObserver === 'function') {
+    currentObserver = new ResizeObserver(updateBannerSpace)
+    currentObserver.observe(banner)
+  }
+
   return {
-    setText: (next) => { textNode.textContent = next },
+    setText: (next) => {
+      textNode.textContent = next
+      // ResizeObserver catches this too, a frame later; measuring now means
+      // Save is never covered for that frame.
+      updateBannerSpace()
+    },
   }
 }
 
 function dismissBanner() {
+  currentObserver?.disconnect()
+  currentObserver = null
   current?.remove()
   current = null
   document.body.classList.remove('has-pwa-banner')
+  document.body.style?.removeProperty('--pwa-banner-space')
 }
 
 const UPDATE_TEXT = 'An update is ready.'

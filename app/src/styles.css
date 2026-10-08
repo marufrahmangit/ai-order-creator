@@ -1026,10 +1026,37 @@ button {
   width: auto;
 }
 
-/* Lift the order list's floating button clear of the banner rather than
-   letting them overlap. */
+/* Everything pinned to the bottom lifts clear of the banner while it is up -
+   ONE mechanism, used by the order list's floating button and the order
+   form's save bar alike. pwa.js writes the banner's measured clearance to
+   --pwa-banner-space on body; this is the default for the moment before it has
+   been measured, sized for the usual two-row banner on a phone (text over
+   buttons, about 102px, plus its 12px offset and a 12px gap).
+
+   It used to be a fixed 88px for the button alone, which assumed the banner
+   fits on one row. On a 375px phone it does not, so even the button sat
+   partly under it - and the form's save bar was not lifted at all, so Save,
+   the only way to keep a half-filled order, was hidden by a banner that
+   appears right after a deploy, when someone may well be mid-order. */
+body.has-pwa-banner {
+  --pwa-banner-space: 128px;
+}
+
 body.has-pwa-banner .fab {
-  bottom: calc(88px + env(safe-area-inset-bottom));
+  bottom: calc(var(--pwa-banner-space) + env(safe-area-inset-bottom));
+}
+
+/* The bar floats above the banner rather than spanning the bottom edge, so its
+   own safe-area padding is not needed - `bottom` already includes the inset. */
+body.has-pwa-banner .form-actions {
+  bottom: calc(var(--pwa-banner-space) + env(safe-area-inset-bottom));
+  padding-bottom: 12px;
+}
+
+/* Both halves, as ever with a fixed bar: lifting it without growing the
+   reservation underneath would leave the last of the form - Trash - behind it. */
+body.has-pwa-banner .form-main {
+  padding-bottom: calc(84px + var(--pwa-banner-space) + env(safe-area-inset-bottom));
 }
 
 /* ---------- Repeat-customer card ---------- */

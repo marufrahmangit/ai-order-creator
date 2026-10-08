@@ -17,7 +17,7 @@
  * Run with `npm test` from app/.
  */
 
-import { installDom, loadable, VIEW_MODULES, settle } from './dom-shim.mjs'
+import { installDom, loadable, VIEW_MODULES, settle, fire } from './dom-shim.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -143,6 +143,105 @@ const saveButtons = (view) => findAll(view, (n) =>
   check('the form reserves room below its content', reserved > 0, true)
   check('and the reservation is larger than the bar\'s own padding, so it ' +
         'covers the button too', reserved > barPadding * 2, true)
+}
+
+// ---- the update banner must not cover Save --------------------------------
+//
+// The banner appears after a deploy - exactly when someone may be mid-order -
+// and it is pinned to the bottom of the viewport like the save bar, drawn on
+// top of it. Until app 0.9.0 nothing lifted the save bar, so the only way to
+// keep a half-filled order was hidden until the banner was dismissed.
+//
+// The fix reuses the mechanism the order list's floating button already had:
+// body.has-pwa-banner, and a lift. The lift is now the banner's MEASURED
+// clearance in --pwa-banner-space, because the old fixed 88px assumed a
+// one-row banner and a phone wraps it to two.
+{
+  const lifted = (selector) => {
+    const body = ruleBody(`body.has-pwa-banner ${selector}`)
+    return body.length === 1 ? body[0] : ''
+  }
+
+  const fabLift = declaration(lifted('.fab'), 'bottom')
+  const barLift = declaration(lifted('.form-actions'), 'bottom')
+  check('the order list\'s button lifts by the banner\'s clearance', /var\(--pwa-banner-space\)/.test(fabLift ?? ''), true)
+  check('the save bar lifts by the SAME clearance - one mechanism, not two', barLift, fabLift)
+
+  const reserveLifted = declaration(lifted('.form-main'), 'padding-bottom')
+  check('the form\'s reservation grows by the same clearance, so the bar does not cover Trash',
+    /var\(--pwa-banner-space\)/.test(reserveLifted ?? ''), true)
+  check('and still includes the whole of the usual reservation',
+    pxIn(reserveLifted) >= pxIn(declaration(ruleBody('.form-main')[0], 'padding')), true)
+
+  // The default, for the moment before the banner has been measured, has to
+  // clear the usual banner on a phone: two rows, text over buttons. Worked out
+  // from the stylesheet's own figures so a change there is checked here.
+  const fixed = (sel, prop) => declaration(ruleBody(sel)[0] || '', prop)
+  const tap = pxIn(CSS.match(/--tap:\s*([^;]+);/)?.[1])
+  const textLine = pxIn(fixed('.pwa-banner-text', 'font-size')) * 1.45
+  const [padY] = String(fixed('.pwa-banner', 'padding')).match(/\d+/g).map(Number)
+  const twoRowBanner = padY * 2 + 2 + textLine + pxIn(fixed('.pwa-banner', 'gap')) + tap
+  const bannerOffset = pxIn(fixed('.pwa-banner', 'bottom'))
+  const defaultSpace = pxIn(declaration(ruleBody('body.has-pwa-banner')[0] || '', '--pwa-banner-space'))
+  check(`the default clearance (${defaultSpace}px) clears a two-row banner (${Math.ceil(twoRowBanner + bannerOffset)}px from the edge)`,
+    defaultSpace > twoRowBanner + bannerOffset, true)
+  check('the old fixed 88px would not have', 88 > twoRowBanner + bannerOffset, false)
+}
+
+{
+  // The measurement itself. The shim has no layout, so the banner's height is
+  // supplied, and ResizeObserver is a stub the test can fire.
+  let bannerHeight = 102
+  let resize = null
+  globalThis.ResizeObserver = class {
+    constructor(fn) { resize = fn }
+    observe() {}
+    disconnect() { resize = null }
+  }
+  const createElement = document.createElement
+  document.createElement = (tag) => {
+    const node = createElement(tag)
+    node.getBoundingClientRect = () => ({ height: bannerHeight })
+    return node
+  }
+
+  const { showUpdateBanner } = await load('pwa.js')
+  const body = document.body
+  const space = () => body.style.getPropertyValue('--pwa-banner-space')
+  const bannerTop = (h) => h + 12  // .pwa-banner sits 12px off the bottom edge
+
+  // A dirty form under it, so Reload has something to warn about.
+  const view = OrderFormView({ orderId: 412, onClose: () => {}, onOpenOrder: () => {} })
+  await settle(400)
+  const name = findAll(view, (n) => n.id === 'of-name')[0]
+  name.value = 'Half-typed'
+  fire(name, 'input')
+
+  showUpdateBanner(() => {})
+  check('while the banner is up, body is marked for the lift', body.classList.contains('has-pwa-banner'), true)
+  check('and carries the banner\'s measured clearance', space(), '126px')
+  check('which puts the save bar above the top of the banner, with a gap',
+    parseFloat(space()) > bannerTop(bannerHeight), true)
+
+  // Reload over a dirty form rewords the banner into the longer warning,
+  // which wraps to a second line. The bar has to follow it up.
+  bannerHeight = 123
+  const reload = findAll(body, (n) => n.textContent === 'Reload')[0]
+  fire(reload, 'click')
+  check('the longer warning is re-measured at once, not a frame later', space(), '147px')
+  check('so Save is still clear of the taller banner', parseFloat(space()) > bannerTop(bannerHeight), true)
+
+  bannerHeight = 80
+  resize?.()
+  check('any later resize - a rotation - is followed too', space(), '104px')
+
+  fire(findAll(body, (n) => n.textContent === 'Dismiss')[0], 'click')
+  check('dismissing the banner drops the lift', body.classList.contains('has-pwa-banner'), false)
+  check('and the clearance with it', space(), '')
+  check('and stops observing', resize, null)
+
+  document.createElement = createElement
+  delete globalThis.ResizeObserver
 }
 
 cleanup()

@@ -45,7 +45,18 @@ export function makeNode(tag) {
     },
     focus() {}, select() {},
     querySelector: () => null,
-    classList: { add() {}, remove() {}, contains: () => false },
+    // Real enough to observe: pwa.js marks body while a banner is up, and sets
+    // the banner's measured clearance as a custom property on it.
+    classList: (() => {
+      const set = new Set()
+      return { add: (c) => set.add(c), remove: (c) => set.delete(c), contains: (c) => set.has(c) }
+    })(),
+    style: {
+      props: {},
+      setProperty(name, value) { this.props[name] = String(value) },
+      removeProperty(name) { delete this.props[name] },
+      getPropertyValue(name) { return this.props[name] ?? '' },
+    },
   }
 }
 

@@ -2,6 +2,23 @@
 
 All notable changes to AI Order Creator are documented in this file.
 
+## App 0.9.0
+
+App only. The plugin is unchanged at 7.1.
+
+- **Fixed: the update banner covered Save on the order form.** Both are pinned to the bottom of the viewport, and the banner is drawn on top (`z-index: 20` over `2`). While it was up, the only way to keep a half-filled order was hidden. That matters more than it looks: the banner appears after a deploy, exactly when someone may be mid-order.
+- **The fix reuses the order list's mechanism** rather than adding a second one. While the banner is up, body carries `has-pwa-banner`, and anything pinned to the bottom has a `body.has-pwa-banner …` rule that lifts it. The form's `.form-actions` now has one, using the same expression as the list's `.fab`. Its reserved space (`.form-main`) grows by the same amount, so lifting the bar does not leave Trash behind it.
+- **The lift is now the banner's measured height, not a fixed 88px.** The 88px assumed a one-row banner. On a 375px phone the banner wraps to two rows (text over buttons, about 102px), so even the list's button sat partly under it. The unsaved-changes wording from 0.8.0 wraps further.
+  - `pwa.js` now writes `--pwa-banner-space` (height + 12px offset + 12px gap) on body when the banner shows, at once when Reload rewords it, and on any resize through a `ResizeObserver`. It removes the variable on dismiss.
+  - The stylesheet's default of 128px covers only the moment before the first measurement.
+  - Both the list's button and the form's bar read the variable, so they share one mechanism with one number.
+- **Tests:** `test/save-bar.test.mjs` grows to 29 checks.
+  - From the stylesheet: the bar lifts by the same clearance as the list's button, the reservation grows with it, the default clears a two-row banner computed from the stylesheet's own figures, and the old 88px would not.
+  - From `pwa.js` against a stubbed layout: the clearance is set on show, re-measured on rewording and on resize, and removed with the class on dismiss.
+  - Each half was confirmed to fail when removed: no save-bar lift (the reported bug), no reservation growth, no re-measure on rewording, and the clearance kept after dismiss.
+  - The test shim's `classList` and `style` are now real enough to observe.
+- **`npm test`: 12 suites, 356 assertions.** `SHELL_VERSION` is bumped to `v13`.
+
 ## App 0.8.0
 
 App only. The plugin is unchanged at 7.1.
