@@ -1,11 +1,13 @@
 {
   "name": "order-ops-app",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "private": true,
   "type": "module",
   "description": "Mobile-first PWA for WooCommerce order ops. Talks to the aioc/v1 REST namespace served by the Order Ops plugin.",
   "scripts": {
     "dev": "vite",
+    "icons": "node scripts/make-icons.mjs",
+    "prebuild": "npm run icons",
     "build": "vite build",
     "preview": "vite preview",
     "test": "node test/run-all.mjs"

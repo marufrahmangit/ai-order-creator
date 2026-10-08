@@ -154,7 +154,7 @@ export function LoginView({ onSignedIn }) {
       decoding: 'async',
     }),
     el('h1', { class: 'login-title', text: 'Order Ops' }),
-    el('p', { class: 'login-hint', text: 'Sign in with your WordPress username and password.' }),
+    el('p', { class: 'login-hint', text: 'Sign in with your username and password.' }),
     error,
     el('div', { class: 'field' }, [
       el('label', { for: 'username', text: 'Username' }),

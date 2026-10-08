@@ -2,7 +2,7 @@
 
 Working brief for resuming this project cold. Present state only — git log is the history.
 
-Plugin header: **Order Ops v7.1**, Updated 2026-10-08. App **0.10.0**.
+Plugin header: **Order Ops v7.1**, Updated 2026-10-08. App **0.10.1**.
 **Staging runs 7.0. Live runs 6.6.** Neither has 7.1.
 
 **Build steps 1 through 11 are built AND verified on staging** — the API layer by real
@@ -229,6 +229,35 @@ parser becomes one feature inside it, not the whole tool.
     does not update when `app/src/` changes. Every app change since the last build,
     step 6a included, is absent from an existing `dist/` until `npm run build` runs
     again. There is no build step on the server to catch this.
+  - **An upload of `dist/` must REPLACE what is on the subdomain, never merge into it.**
+    Delete the subdomain's contents first (at least `index.html`, `sw.js`,
+    `manifest.webmanifest`, `assets/` and `icons/`), or upload with overwrite on.
+    Several files keep the SAME NAME across every build — `index.html`, `sw.js`,
+    `manifest.webmanifest`, and every file under `icons/`, whose names are still the
+    step 7 placeholders' — so an upload that skips existing files leaves the old ones
+    in place, and **a stale file with an unchanged name is invisible in a file
+    listing**. A stale icon is the mild case; a stale `index.html` serves the old
+    bundle, and a stale `sw.js` means installed clients never hear of the update.
+    Deleting first also clears old hashed bundles out of `assets/`, which a merge
+    otherwise accumulates.
+    - **Check after uploading** rather than trusting the listing:
+      `curl -s https://ops.cartmixbd.com/sw.js | grep SHELL_VERSION` must show the
+      version in `app/public/sw.js`, and
+      `curl -s https://ops.cartmixbd.com/icons/icon-192.png | sha256sum` must match
+      `sha256sum app/public/icons/icon-192.png` locally.
+    - **Content-hashed icon names were considered and NOT adopted.** They would make a
+      stale ICON impossible, the way the hashed JS and CSS already are — but they do
+      not remove the rule above, because `index.html`, `sw.js` and the manifest cannot
+      be hashed: the browser asks for the page and the registered worker at fixed
+      URLs. So a merging upload would still leave the two files that matter most
+      stale, and the delete-first rule is needed regardless. The cost: icons in
+      `public/` are copied verbatim, never hashed, so they would move under `src/`;
+      Vite would then hash the `index.html` links (apple-touch-icon, favicon) and the
+      login logo's import itself, but NOT the manifest's contents or the service
+      worker's precache list, so both would need a small build plugin to write the
+      hashed names in — and `icons.test.mjs` would have to check the build output
+      rather than the source tree. Worth revisiting if the deploy is ever automated;
+      not worth it to cover one file type out of four that the rule covers anyway.
 - Deploy is manual file upload to `wp-content/plugins/ai-order-creator/`. The plugin
   DIRECTORY NAME must never change — renaming deactivates it on the live site. After
   every upload, verify with `GET /aioc/v1/ping` and check the returned version matches
@@ -440,11 +469,22 @@ parser becomes one feature inside it, not the whole tool.
   dismissible "update is ready" banner and only reloads when tapped. Auto-reloading
   would discard a half-filled order form.
 - **Every icon is GENERATED from `app/public/icons/logo.png`** by
-  `node scripts/make-icons.mjs` (from `app/`) — the 192 and 512 manifest icons, the 512
-  maskable, the 180 apple-touch-icon, the 32 favicon and the login screen's logo. No
-  dependencies: `scripts/png.mjs` is a minimal PNG codec. To change the logo, replace
-  `logo.png`, rerun the script, and bump `SHELL_VERSION` — the icons are part of the
-  cached shell. `test/icons.test.mjs` fails if a committed icon no longer matches.
+  `scripts/make-icons.mjs` — the 192 and 512 manifest icons, the 512 maskable, the 180
+  apple-touch-icon, the 32 favicon and the login screen's logo. No dependencies:
+  `scripts/png.mjs` is a minimal PNG codec.
+  - **It runs automatically before every `npm run build`** (the `prebuild` script), so
+    `dist/` always carries icons made from the logo in the tree at that moment and a
+    replaced logo cannot ship stale icons. `npm run icons` runs it alone. It writes into
+    `public/icons/` in the source tree, so a changed logo shows up as changed icons in
+    `git status`, to be committed together; output is deterministic, so an unchanged
+    logo produces no diff.
+  - **What `icons.test.mjs` compares:** each committed icon against one regenerated IN
+    MEMORY from the `logo.png` present when the test runs — not against a stored
+    snapshot. So replacing the logo without regenerating fails it (confirmed: a
+    recoloured logo fails all six "matches" checks). It does not fail while the two
+    agree, which is the point.
+  - Still manual: bump `SHELL_VERSION` when the icons change — they are part of the
+    cached shell — and commit the regenerated icons.
   - The source is **500x500 RGB with no transparency**, on opaque white. So every icon is
     opaque white with the logo centred, and nothing is cut out of it.
   - The logo is a wide horizontal mark, so the **maskable** icon is not fitted by its
@@ -494,6 +534,15 @@ parser becomes one feature inside it, not the whole tool.
   - **Why it matters on the form:** the banner appears after a deploy — exactly when
     someone may be mid-order — and until app 0.9.0 it covered Save, the only way to keep
     that order.
+- **The app's own words do not name the backend.** Staff do not need to know the store
+  runs on WordPress, so no screen says "WordPress" or "wp-admin" — the login hint is
+  "Sign in with your username and password." The exceptions are messages where the
+  term is what the reader must act on, all of them setup failures rather than daily
+  use: `/token`'s "This site does not support application passwords" and "Application
+  passwords are disabled for this account" (an admin has to change exactly that), and
+  the network error naming the App Origin setting (the setting that has to match).
+  The trash confirmation used to say "use wp-admin" to restore, which had also been
+  untrue since step 6c; it now points at Trash on the order list.
 - The app builds nodes and sets `textContent`; it never assembles HTML from data.
   Order data is staff-pasted free text, so string-built markup would be an injection
   risk. `dom.js` has no `html` option by design.

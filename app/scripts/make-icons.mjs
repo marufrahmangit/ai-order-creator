@@ -1,13 +1,20 @@
 /**
  * Builds every icon the app ships from public/icons/logo.png.
  *
- *   node scripts/make-icons.mjs        (from app/)
+ *   npm run icons                      (from app/)
  *
- * Run it after replacing logo.png, then bump SHELL_VERSION in public/sw.js -
- * the icons are part of the cached shell, and installed clients will not see
- * new ones otherwise. test/icons.test.mjs regenerates everything in memory and
- * fails if a committed icon no longer matches its source, so a new logo cannot
- * be half-applied.
+ * It ALSO RUNS AUTOMATICALLY before every `npm run build`, as the `prebuild`
+ * script, so a replaced logo.png cannot ship stale icons: dist/ is always built
+ * from icons made from the logo in the tree at that moment. It writes into
+ * public/icons/ - the source tree, not dist/ - so a changed logo shows up as
+ * changed icons in `git status`, to be committed with it. Output is
+ * deterministic, so an unchanged logo rewrites identical bytes and no diff.
+ *
+ * Two things it cannot do for you: bump SHELL_VERSION in public/sw.js (the
+ * icons are part of the cached shell, and installed clients will not see new
+ * ones otherwise), and commit. test/icons.test.mjs catches the second - it
+ * regenerates every icon in memory from the logo present when it runs and
+ * fails on any committed icon that does not match.
  *
  * The logo is a horizontal mark - cart, speed lines and wordmark - on OPAQUE
  * white, with no alpha channel. That decides the layouts:

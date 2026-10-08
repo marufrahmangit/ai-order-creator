@@ -13,6 +13,9 @@ yarn-error.log*
 # Vite build output
 app/dist/
 app/.vite/
+# A zipped dist/, made locally for uploading to the subdomain. Build output
+# like dist/ itself, so never committed.
+app/dist.zip
 
 # Local environment. app/.env.example is the committed template and is
 # deliberately NOT matched by either pattern below - it carries the variable

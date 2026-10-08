@@ -1192,7 +1192,7 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, onNewOrder, reord
     // phone is easy to dismiss by accident and can be suppressed outright.
     trashArea.append(
       el('p', { class: 'confirm-text', text: 'Move this order to the trash?' }),
-      el('p', { class: 'field-hint', text: 'It leaves the list. Restoring is not possible from this app yet — use wp-admin.' }),
+      el('p', { class: 'field-hint', text: 'It leaves the list. You can restore it from Trash on the order list.' }),
       el('div', { class: 'confirm-actions' }, [
         el('button', {
           type: 'button', class: 'button', text: 'Cancel',

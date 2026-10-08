@@ -2,6 +2,20 @@
 
 All notable changes to AI Order Creator are documented in this file.
 
+## App 0.10.1
+
+App only. The plugin is unchanged at 7.1.
+
+- **The login hint no longer says "WordPress".** It now reads "Sign in with your username and password." Staff don't need to know what the backend is.
+- **Fixed: the trash confirmation said restoring wasn't possible from the app.** It read "Restoring is not possible from this app yet — use wp-admin", which has been untrue since step 6c added Restore. It now says "You can restore it from Trash on the order list."
+- **Kept deliberately:** the `/token` messages about application passwords, and the network error naming the App Origin setting. In each, the term is what someone has to act on, and each appears only when setup is broken. These are recorded as a convention in `docs/PROJECT-STATE.md`.
+- **Icons are regenerated on every build.** `npm run build` now runs `scripts/make-icons.mjs` first, as the `prebuild` script, so a replaced `logo.png` can't ship stale icons. `npm run icons` runs it on its own. It writes into `public/icons/`, so new icons show up in `git status` to be committed. The output is deterministic, so an unchanged logo produces no diff. Confirmed end to end: a recoloured logo built into `dist/` produced new icons, and restoring it left no diff.
+  - `test/icons.test.mjs` regenerates each icon in memory from the `logo.png` present when the test runs, and compares it with the committed file. It does not compare against a stored snapshot. A logo replaced without regenerating therefore fails it: confirmed, with all six "matches" checks failing.
+- **Deploy note** in `docs/PROJECT-STATE.md`: an upload of `dist/` must replace what is on the subdomain, never merge into it. Several files keep their names across every build, including `index.html`, `sw.js`, the manifest and all the icons, so a skip-existing upload leaves stale copies that look current in a file listing. The note includes a `curl` check to run after uploading.
+  - **Content-hashed icon names were considered and not adopted.** `index.html`, `sw.js` and the manifest can't be hashed, so the replace-don't-merge rule is needed anyway. Hashing would also take a build plugin to write the hashed names into the manifest and the service worker's precache list.
+- `app/dist.zip` is gitignored.
+- `SHELL_VERSION` is bumped to `v15`.
+
 ## App 0.10.0
 
 App only. The plugin is unchanged at 7.1.
