@@ -60,6 +60,35 @@ const purposes = manifest.icons.map((icon) => `${icon.sizes} ${icon.purpose}`).s
 check('the manifest offers 192 and 512 "any" and a 512 maskable',
   purposes, ['192x192 any', '512x512 any', '512x512 maskable'])
 
+// ---- the app's name, wherever a platform shows it ---------------------------
+{
+  const html = read('index.html').toString()
+  check('the manifest names the app CartMix Shop Manager', manifest.name, 'CartMix Shop Manager')
+  // Home-screen labels truncate at around 12 characters on both platforms, and
+  // the full name would come out as "CartMix Sho…".
+  check('its short_name fits a home-screen label', manifest.short_name.length <= 12, true)
+  check('iOS, which ignores short_name, is given the same label',
+    html.match(/name="apple-mobile-web-app-title" content="([^"]+)"/)?.[1], manifest.short_name)
+  check('the browser tab carries the full name', html.match(/<title>([^<]+)<\/title>/)?.[1], manifest.name)
+
+  // No user-visible "Order Ops" left in the app. Internal names - the aioc/v1
+  // namespace, the plugin, the application-password prefix the API sets - are
+  // not in app/src at all, so any hit here is a leftover.
+  const leftovers = []
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name)
+      if (entry.isDirectory()) walk(full)
+      else if (/Order Ops/.test(fs.readFileSync(full, 'utf8'))) leftovers.push(path.relative(APP, full).split(path.sep).join('/'))
+    }
+  }
+  walk(path.join(APP, 'src'))
+  for (const file of ['index.html', 'public/manifest.webmanifest', 'public/sw.js']) {
+    if (/Order Ops/.test(read(file).toString())) leftovers.push(file)
+  }
+  check('nothing user-visible in the app still says "Order Ops"', leftovers, [])
+}
+
 // ---- the maskable icon survives a circular mask ----------------------------
 {
   const icon = decodePng(iconFile('icon-512-maskable.png'))

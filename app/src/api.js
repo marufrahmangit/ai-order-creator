@@ -163,7 +163,7 @@ async function request(path, options = {}) {
     // is how a customer ends up with two identical orders.
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
       throw new ApiError(
-        'No connection. Order Ops needs the network to read or save orders.',
+        'No connection. Shop Manager needs the network to read or save orders.',
         { code: 'aioc_app_network' },
       )
     }

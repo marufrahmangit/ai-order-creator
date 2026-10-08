@@ -2,6 +2,23 @@
 
 All notable changes to AI Order Creator are documented in this file.
 
+## App 0.11.0
+
+App only. The plugin is unchanged at 7.1 and is still named "Order Ops".
+
+- **The app is now "CartMix Shop Manager" to staff.**
+  - The manifest `name` and the browser tab show the full name.
+  - The home-screen label is **"CartMix"**, via `short_name` and iOS's `apple-mobile-web-app-title`. Labels truncate at around 12 characters, so the full name would be cut, and "Shop Manager" sits right at the limit and is generic. "CartMix" fits everywhere and matches the icon's wordmark.
+  - The login heading is "Shop Manager", under the CartMix logo, so the card reads as the full name without repeating "CartMix".
+  - The no-connection messages, in the app and in the service worker's offline page, say "Shop Manager". The install prompts use the full name.
+  - The app header was unchanged: it shows "Orders" and "Trash", not the app's name.
+- **Not renamed:** the plugin directory, the `ai_` prefix, the `aioc/v1` namespace, the `AIOC_*` constants, option names, the text domain and the repo. All are internal, and some are persisted.
+- **Plugin-side names are deferred to one later plugin release.** These are the `Plugin Name` header, the `Order Ops (app)` application-password prefix, and the "Order created via Order Ops app" order note. All are visible only in wp-admin and all need an upload to both sites. The reasoning is in `docs/PROJECT-STATE.md`.
+- **Past changelog entries keep the old name.** They describe what was true when they were written.
+- **An already-installed app may keep its old name until it is removed and re-added,** as with the icon.
+- `icons.test.mjs` grows to 41 checks. It now asserts the name, the home-screen label, the iOS label and the title agree, that the label fits, and that no "Order Ops" is left anywhere user-visible in the app. Confirmed to fail when the old name is put back.
+- `SHELL_VERSION` is bumped to `v16`, since the manifest and the offline page are part of the cached shell.
+
 ## App 0.10.1
 
 App only. The plugin is unchanged at 7.1.

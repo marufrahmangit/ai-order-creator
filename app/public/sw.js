@@ -28,7 +28,7 @@
  * the OLD index.html and therefore the old hashed bundle, indefinitely. There
  * is no automatic invalidation to fall back on.
  */
-const SHELL_VERSION = 'v15';
+const SHELL_VERSION = 'v16';
 
 const SHELL_CACHE = `orderops-shell-${SHELL_VERSION}`;
 
@@ -138,7 +138,7 @@ const OFFLINE_HTML = `<!doctype html>
 </style></head>
 <body><div>
   <h1>No connection</h1>
-  <p>Order Ops needs the network to read or save orders. Reconnect and try again.</p>
+  <p>Shop Manager needs the network to read or save orders. Reconnect and try again.</p>
 </div></body></html>`;
 
 function offlineResponse() {

@@ -2,7 +2,8 @@
 
 Working brief for resuming this project cold. Present state only — git log is the history.
 
-Plugin header: **Order Ops v7.1**, Updated 2026-10-08. App **0.10.1**.
+Plugin header: **Order Ops v7.1**, Updated 2026-10-08. App **0.11.0**, named **CartMix Shop
+Manager** to staff — see "Names" under Product decisions; the plugin is still "Order Ops".
 **Staging runs 7.0. Live runs 6.6.** Neither has 7.1.
 
 **Build steps 1 through 11 are built AND verified on staging** — the API layer by real
@@ -548,6 +549,45 @@ parser becomes one feature inside it, not the whole tool.
   risk. `dom.js` has no `html` option by design.
 
 ## Product decisions
+
+- **Names. The app staff use is "CartMix Shop Manager"; the plugin is still "Order Ops";
+  internal identifiers never change.** Renamed in app 0.11.0.
+  - **App, user-facing:** the manifest `name` and the browser tab are "CartMix Shop
+    Manager". The home-screen label (`short_name`, and `apple-mobile-web-app-title`,
+    which iOS reads instead) is **"CartMix"**: home-screen labels truncate at around 12
+    characters, so the full name would come out as "CartMix Sho…", and "Shop Manager"
+    sits exactly at that limit (some launchers cut it to "Shop Manag…") and is generic
+    beside any other shop app on the phone. "CartMix" never truncates and matches the
+    wordmark in the icon above it. The login heading is "Shop Manager", under the
+    CartMix logo, so the card reads as the full name without printing "CartMix" twice;
+    in-app sentences say "Shop Manager"; the install prompts use the full name, since
+    that is what is being installed. `icons.test.mjs` asserts the manifest, the title
+    and the iOS label agree, and that no "Order Ops" is left in `app/src`, `index.html`,
+    the manifest or `sw.js`.
+  - **An already-installed app may keep its old name and icon** until it is removed
+    from the home screen and added again. The `v16` shell update delivers the new
+    manifest, but whether the launcher re-reads it is the platform's call: Android
+    updates an installed app's label on its own schedule; iOS fixes both at the moment
+    of adding.
+  - **Never renamed, because they are persisted or load-bearing:** the plugin directory
+    `ai-order-creator` (renaming it deactivates the plugin on both sites), the `ai_`
+    function prefix, the `aioc/v1` namespace, the `AIOC_*` constants, option names such
+    as `ai_app_origin`, the text domain, and the repo.
+  - **Plugin-side names, deliberately LEFT for one later plugin release:** the header's
+    `Plugin Name: Order Ops` (wp-admin's plugin list), `AIOC_APP_PASSWORD_PREFIX`
+    ("Order Ops (app) <timestamp>", each staff member's Application Passwords list), and
+    the order note "Order created via Order Ops app" written on every order the app
+    creates. All three are user-visible only in wp-admin, and all three need a plugin
+    upload to both sites, where this rename was app-only. Do them together, with the
+    next plugin release that is going out anyway — folding in the Code Snippets entries
+    is the obvious one — rather than spending an upload on labels. Changing `Plugin
+    Name` is safe: only the directory and main file name affect activation.
+    - **The application-password prefix is worth changing then.** Nothing matches on it
+      — it is a label, and the owed revoke route will use the `uuid` — so the only cost
+      is that each profile lists old "Order Ops (app)" entries beside new ones until
+      they are pruned, which is already a manual job (see Unverified / open). The order
+      note changes only for new orders; existing orders keep the note they were given,
+      which is history and correct.
 
 - **Where WooCommerce already has a behaviour, copy it rather than designing a new
   one.** This is the governing rule for anything the app does to an order, and it is

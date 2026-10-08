@@ -253,7 +253,7 @@ function initInstallPrompt() {
     if (wasDismissed(DISMISSED_IOS_HINT)) return
 
     showBanner({
-      text: 'Add Order Ops to your home screen: tap Share, then Add to Home Screen.',
+      text: 'Add CartMix Shop Manager to your home screen: tap Share, then Add to Home Screen.',
       onDismiss: () => markDismissed(DISMISSED_IOS_HINT),
     })
     return
@@ -267,7 +267,7 @@ function initInstallPrompt() {
     event.preventDefault()
 
     showBanner({
-      text: 'Install Order Ops for a faster launch.',
+      text: 'Install CartMix Shop Manager for a faster launch.',
       actionLabel: 'Install',
       onAction: () => event.prompt(),
       // Dismissal persists, so this asks once rather than on every launch.

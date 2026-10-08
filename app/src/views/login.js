@@ -153,7 +153,7 @@ export function LoginView({ onSignedIn }) {
       height: 91,
       decoding: 'async',
     }),
-    el('h1', { class: 'login-title', text: 'Order Ops' }),
+    el('h1', { class: 'login-title', text: 'Shop Manager' }),
     el('p', { class: 'login-hint', text: 'Sign in with your username and password.' }),
     error,
     el('div', { class: 'field' }, [

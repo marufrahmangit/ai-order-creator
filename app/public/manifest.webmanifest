@@ -1,6 +1,6 @@
 {
-  "name": "Order Ops",
-  "short_name": "Order Ops",
+  "name": "CartMix Shop Manager",
+  "short_name": "CartMix",
   "description": "Create, update and trash WooCommerce orders from a phone.",
   "start_url": "/",
   "scope": "/",
