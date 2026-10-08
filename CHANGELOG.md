@@ -2,6 +2,34 @@
 
 All notable changes to AI Order Creator are documented in this file.
 
+## 7.2
+
+- **Fixed: places written without their district resolved to the wrong district.** Shipping is a pure function of the district, so each was a wrong charge on a real order.
+  - `"Kishore"` became Jashore. So did a customer *named* Kishore, because with no "District:" label the whole message is scanned.
+  - `"Sreepur"` became Sherpur.
+  - `"Kaliganj"` became Habiganj.
+  - `"Shibpur"` became Sherpur.
+  - Each was a different division and a different rate.
+- **Cause:** `ai_extract_state_from_text()`'s fuzzy fallback is plain edit distance. It allowed 2 edits for any name of 7+ letters. Bangladeshi place names are a short distinctive start plus a shared ending (-pur, -ganj, -shore, -khali), so the shared ending paid for a different start. All four misroutes were at exactly 2 edits. The right district was 4–8 edits away and never a candidate, because these are different places, not misspellings. A margin over the runner-up would not have helped: the matcher wasn't torn between two districts, it was sure of the wrong one.
+- **Fix:** the allowance is now **1 edit, or 2 only for names of 9+ characters**. The four near-misses resolve to **no district**, deliberately. **A wrong district is worse than none**: an empty one is visible in the app's dropdown and gets filled, while a wrong one looks normal and is saved at the wrong rate.
+  - **Caveat:** wp-admin's one-step "Create order" doesn't review. There, an empty district means no shipping line. That is still detectable afterwards, unlike a wrong district.
+- **New exact aliases:**
+  - `gazipore` → Gazipur and `tangile` → Tangail, 2-edit spellings the tighter allowance no longer reaches.
+  - `naraingonj` → Narayanganj, which no allowance reached.
+  - `shibpur` → Narsingdi, its district.
+- **Deliberately not aliases, each recorded in `bd-locations.php` beside where it would go:**
+  - `kishore`, a common given name. The exact pass would route every customer named Kishore to Kishoreganj.
+  - `sreepur`, which names places in Gazipur and Magura.
+  - `kaliganj`, which names places in Gazipur, Satkhira, Jhenaidah and Lalmonirhat.
+- **Measured before the change** against 25 real misspellings. The old rule resolved 24 and misrouted all four test places. The new rule stops all four and keeps 22, plus the 3 now listed exactly.
+- **New `tests/parser/state-matching.test.php`** (53 checks), run against the real parser under PHP. WooCommerce's 64-row BD list is a fixture, extracted as data and never executed. It asserts:
+  - the misroutes and "Kishore" as a name resolve to no district;
+  - the 25 misspellings resolve correctly;
+  - the full-name cases verified on live keep their district, code and shipping rate;
+  - eight near-neighbour district names stay put (gazipur ~ azimpur, meherpur ~ sherpur, noakhali ~ mohakhali, bogra ~ boyra).
+  - It was confirmed to fail with the old allowance, with an allowance of 1 everywhere, with a `kishore` alias added, and with a new alias removed.
+- **`npm test` runs the PHP suite when it can find a PHP**, via `PHP_BIN` or `php` on the PATH, loading mbstring from a portable PHP's `ext/` itself. With no PHP it prints **SKIPPED**, by name, in the summary, and never skips silently. `REQUIRE_PHP=1` makes a skip a failure. A failing PHP suite fails `npm test`, also confirmed.
+
 ## App 0.11.0
 
 App only. The plugin is unchanged at 7.1 and is still named "Order Ops".

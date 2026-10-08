@@ -2,11 +2,14 @@
 
 Working brief for resuming this project cold. Present state only — git log is the history.
 
-Plugin header: **Order Ops v7.1**, Updated 2026-10-08. App **0.11.0**, named **CartMix Shop
+Plugin header: **Order Ops v7.2**, Updated 2026-10-08. App **0.11.0**, named **CartMix Shop
 Manager** to staff — see "Names" under Product decisions; the plugin is still "Order Ops".
-**Both sites run 7.1.** On staging, 7.1's decimal quantities are verified, through the API
-and in a browser. On live, only `POST /parse` has been verified (see Verified); nothing
-else in 6.7-7.1 has been exercised there yet.
+**Both sites run 7.1; the repo is at 7.2, which neither site has.** 7.2 is a parser fix:
+places written without their district (Kishore, Sreepur, Kaliganj) now resolve to NO
+district instead of a wrong one, which used to mean a wrong shipping rate. On staging,
+7.1's decimal quantities are verified, through the API and in a browser. On live, only
+`POST /parse` has been verified (see Verified); nothing else in 6.7-7.1 has been
+exercised there yet.
 
 **Build steps 1 through 11 are built AND verified on staging** — the API layer by real
 requests, the app in a browser, including as an installed standalone PWA. Steps 8-11
@@ -49,7 +52,11 @@ say what exists, what is proven, and what is merely written down.**
 passes its checks locally; steps 1-12 are verified on staging, 13-17 are not yet. Two of
 those checks are in the repo and one is not:
 
-- **`npm test` in `app/`** — fourteen suites, 421 assertions. In the repo. Run this first.
+- **`npm test` in `app/`** — fourteen JS suites, 421 assertions, plus the PHP parser suite
+  (53 assertions) when it can find a PHP. In the repo. Run this first. Without a PHP it
+  prints SKIPPED for the PHP suite, by name, in the summary; set `PHP_BIN` to the
+  portable PHP described under Conventions to run it, and `REQUIRE_PHP=1` to make a skip
+  fail.
 - **`php -l` over all 27 PHP files** — needs the portable PHP described under
   Conventions, which is not in the repo either but takes one download to set up.
 - **A contract check** that greps the real PHP and JS source and asserts every field
@@ -64,7 +71,11 @@ None of them needs a server.
 **The next work is deployment and verification, and it is operational, not code.** In
 order, because each step depends on the one before:
 
-1. ~~Upload 7.1 to staging~~ — **done**; decimal quantities verified there.
+1. ~~Upload 7.1 to staging~~ — **done**; decimal quantities verified there. **Upload 7.2
+   to staging, then live**, and confirm `/ping` reports `7.2`. Check on staging that
+   `POST /parse` with "House 5, Kishore" or "Sreepur bazar" returns no district, and
+   that "Kishoreganj Sadar, Kishoreganj" and "Sreepur, Gazipur" still return BD-26 and
+   BD-18.
 2. Check the app-only steps 13-17 against staging from `npm run dev` — the specifics
    are under Unverified / open.
 3. ~~Upload 7.1 to live~~ — **done**; live runs 7.1, and `/parse` is verified there.
@@ -327,6 +338,17 @@ parser becomes one feature inside it, not the whole tool.
     text first, and only falls back to fuzzy matching when no alias appears anywhere. An
     input that names the district in full ("Sreepur, Gazipur") is decided by the exact
     pass, and says nothing about the fuzzy one.
+  - **`tests/parser/state-matching.test.php` is the committed parser test**, run by
+    `npm test` when a PHP is available (above). It stubs only the WordPress and
+    WooCommerce functions the parser touches, with WooCommerce's 64-row BD list as a
+    fixture in `tests/parser/fixtures/` - extracted as DATA from `i18n/states.php`, never
+    executed, so the `ABSPATH` trap above does not apply. It pins both directions of the
+    7.2 change: places without their district resolve to nothing, including "Kishore" as
+    a customer's name; 25 real misspellings still resolve; the live full-name cases keep
+    their district, code and rate; and the near-neighbour district names stay put.
+    Confirmed to fail with the old allowance, with an allowance of 1 everywhere, with a
+    `kishore` alias added, and with a new alias removed. A new PHP suite needs only the
+    `.test.php` suffix under `tests/`.
 - App tests: `npm test` in `app/`. No dependencies, no browser, **fourteen suites, 421
   assertions**. Some read the real source and lift part of it, so they cannot drift from
   the code silently; the rest run a view against a crude DOM shim, which is the only
@@ -565,6 +587,46 @@ parser becomes one feature inside it, not the whole tool.
   risk. `dom.js` has no `html` option by design.
 
 ## Product decisions
+
+- **A wrong district is worse than no district.** The parser resolves a district only
+  when it is confident, and otherwise returns none. Decided in 7.2.
+  - **Why:** in the app, an empty district is an empty dropdown on the form, which is
+    visible and gets filled before saving. A confidently wrong district looks exactly
+    like a right one and is saved — and shipping is a pure function of the district, so
+    a wrong one is a wrong charge on a real order (80 / 120 / 150 by division).
+  - **The caveat: wp-admin's "Create order" parses and creates in one step, with no
+    review.** On that path an empty district means **no shipping line at all**, where
+    there should be 120-150. Still preferable, because an order with no district and no
+    shipping is detectable afterwards, while a wrong district looks normal - but it is a
+    real consequence of this decision, not a free one. The app's flow always reviews.
+  - **The failure class, which will recur as the alias list grows:** Bangladeshi place
+    names are a short distinctive start plus a shared ending (-pur, -ganj, -shore,
+    -khali). An edit-distance allowance measured against the WHOLE word lets the shared
+    ending pay for a different start: "kali" vs "habi" is half of what distinguishes
+    Kaliganj from Habiganj, but only 2 of its 8 letters. And in every misroute found, the
+    right district was not even a candidate - 4 to 8 edits away - because the input was
+    a different place (an upazila), not a misspelling of a district. So a confidence
+    margin over the runner-up does not help this class: the matcher was not torn
+    between two districts, it was sure of the wrong one.
+  - **The rule since 7.2:** the fuzzy pass allows 1 edit, or 2 only for names of 9+
+    characters. A 2-edit near-miss on a short name is exactly the low-confidence case,
+    and it now resolves to nothing. Known spellings it stops reaching belong in the
+    exact list (`gazipore`, `tangile`, `naraingonj` were added for that); the fuzzy pass
+    is only a net for unknown ones. Measured before the change against 25 real
+    misspellings: the old rule resolved 24 and misrouted all 4 test places, the new one
+    stops all 4 and keeps 22, plus the 3 now listed exactly.
+  - **Standing hazard: district names already within each other's reach.** `gazipur` ~
+    `azimpur` (a Dhaka area), `meherpur` ~ `sherpur`, `noakhali` ~ `mohakhali` (Dhaka),
+    `bogra` ~ `boyra` (Khulna). Each is right today only because it is an exact alias, and
+    the exact pass runs first. A misspelling of any of them is one edit from its
+    neighbour, so before adding an alias - or loosening the allowance - check it against
+    these. `state-matching.test.php` pins all eight.
+  - **Deliberately NOT aliases, recorded next to where they would go in
+    `bd-locations.php`:** `kishore` (a common given name, and with no "District:" label
+    the exact pass scans the whole message, name included, so it would route every
+    customer named Kishore to Kishoreganj), `sreepur` (Gazipur and Magura) and
+    `kaliganj` (Gazipur, Satkhira, Jhenaidah, Lalmonirhat). All three resolve to no
+    district, which is the intended outcome. `shibpur` IS an alias, to Narsingdi.
 
 - **Names. The app staff use is "CartMix Shop Manager"; the plugin is still "Order Ops";
   internal identifiers never change.** Renamed in app 0.11.0.
@@ -1673,34 +1735,26 @@ shipping fix — **confirmed on staging and in a browser**. `/ping` reports `7.0
   the storefront is unused and there are no abandoned carts, so nothing to fix today, but
   the default is wider than WooCommerce's. The app filters the status out of its dropdown;
   the list query does not.
-- **The fuzzy fallback in `ai_extract_state_from_text()` misroutes a place written
-  WITHOUT its district — and only then.** Matching is correct whenever the district is
-  named: the exact-alias pass runs first over the whole text and wins, which is what
-  live confirmed at 7.1 ("Kishoreganj Sadar, Kishoreganj" → BD-26, "Sreepur, Gazipur" →
-  BD-18). The fuzzy pass runs only when no alias appears anywhere; it scans every word
-  of 5+ characters against every ASCII alias, allowing one edit at 5-6 characters and
-  two at 7+, and returns on the first word that matches anything. **These inputs, with
-  no district in them, misroute on the current code** (run locally under PHP 8.3 with
-  WooCommerce's BD list, after the live checks):
-  - `"Kishore"` and `"House 5, Kishore"` → **Jashore** (Kishoreganj abbreviated)
-  - `"Sreepur"` and `"Sreepur bazar"` → **Sherpur**
-  - `"Kaliganj"` → **Habiganj**
-  - `"Shibpur"` → **Sherpur**
+- **District fuzzy matching: fixed in 7.2, NOT yet on either site.** The four misroutes
+  of places written without their district are gone in the repo, verified only locally
+  under PHP 8.3 by `tests/parser/state-matching.test.php`:
+  - `"Kishore"`, `"House 5, Kishore"` and a customer NAMED Kishore → **no district**
+    (were Jashore)
+  - `"Sreepur"`, `"Sreepur bazar"` → **no district** (were Sherpur)
+  - `"Kaliganj"` → **no district** (was Habiganj)
+  - `"Shibpur"` → **Narsingdi**, now an exact alias (was Sherpur)
 
-  Controls behave: "Jessore" and "Joshore" → Jashore, which is what the fuzzy pass is
-  for. `mohakhali` → Noakhali was the same shape and is fixed by an exact alias. How
-  often staff messages omit the district is not known; the reported Jashore mismatch is
-  the only observed case. An exact alias is the cheap fix per name; the general one is
-  the two-edit budget on seven-letter aliases, which is loose for place names that
-  differ by two letters. Worth capping at one edit and measuring what breaks.
-- **`Sreepur` and `Kaliganj` are ambiguous and deliberately unmapped.** Sreepur names an
-  upazila in Gazipur and in Magura; Kaliganj in Gazipur, Satkhira, Jhenaidah and
-  Lalmonirhat. Mapping either to Gazipur would assert a district the text never states.
-  Written WITHOUT a district, both currently resolve WRONGLY via the fuzzy pass (see the
-  item above), so "unmapped" is not neutral there — it leaves a confidently wrong
-  answer. Written with one, as in "Sreepur, Gazipur", they are right. Decide between adding them to Gazipur anyway
-  (most likely for a Dhaka-based store) and tightening the fuzzy matcher so they fall
-  through to unresolved.
+  **Deliberately left resolving to nothing:** Kishore, Sreepur and Kaliganj, for the
+  reasons under "A wrong district is worse than no district" in Product decisions -
+  staff pick from the empty dropdown. If it turns out nearly every bare "Sreepur" or
+  "Kaliganj" this store sees is Gazipur, mapping them is a business call that trades a
+  rare 30 BDT under-charge on a Magura, Satkhira or Jhenaidah order for not having to
+  pick; the code change is one line each.
+
+  **What the tighter allowance gave up:** 2-edit misspellings of names under 9
+  characters. `gazipore`, `tangile` and `naraingonj` were added as exact aliases for
+  that; others will surface as an empty district, which is visible. How often staff
+  messages omit the district at all is still not known.
 - **WooCommerce's own BD state labels leak trailing whitespace into the alias map.**
   `ai_get_state_aliases()` keys on `strtolower($name)`, so `"Faridpur "` and
   `"Manikganj "` become aliases with a trailing space that no substring search can

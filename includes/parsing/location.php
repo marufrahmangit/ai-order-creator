@@ -55,8 +55,26 @@ function ai_extract_state_from_text($text) {
             if ($alias_len < 5) {
                 continue;
             }
-            // Allow 1 edit for 5–6 char aliases, 2 edits for 7+ char aliases.
-            $max_dist = $alias_len >= 7 ? 2 : 1;
+            // 1 edit, or 2 for aliases of 9+ characters.
+            //
+            // It was 2 from 7 characters, which let real places through as
+            // wrong districts: 'kishore' -> jashore, 'sreepur' -> sherpur,
+            // 'kaliganj' -> habiganj, 'shibpur' -> sherpur, all at 2. The
+            // failure class: Bangladeshi place names are a short distinctive
+            // start plus a shared ending (-pur, -ganj, -shore, -khali), and an
+            // allowance measured against the whole word lets the shared ending
+            // pay for a different start - "kali" vs "habi" is half the part
+            // that matters, but only 2 of 8 letters. The right district was
+            // never even a candidate (4+ edits away): these are different
+            // places, not misspellings.
+            //
+            // A WRONG DISTRICT IS WORSE THAN NONE. An empty one shows as an
+            // empty dropdown in the app and someone picks; a wrong one looks
+            // normal and is saved with the wrong shipping rate. So a near-miss
+            // on a short name now resolves to nothing. Common spellings this
+            // stops reaching are listed exactly in bd-locations.php instead.
+            // tests/parser/state-matching.test.php pins both directions.
+            $max_dist = $alias_len >= 9 ? 2 : 1;
             $dist = levenshtein($word, $alias);
 
             if ($dist <= $max_dist && $dist < $best_dist) {

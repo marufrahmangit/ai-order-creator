@@ -24,8 +24,14 @@ return [
         'mymensingh' => 'Mymensingh',
         'ময়মনসিংহ' => 'Mymensingh',
         'gazipur' => 'Gazipur',
+        // A common romanization that is 2 edits from 'gazipur' - which the
+        // fuzzy pass no longer accepts for names under 9 letters (7.2), so it
+        // is listed exactly instead.
+        'gazipore' => 'Gazipur',
         'গাজীপুর' => 'Gazipur',
         'narayanganj' => 'Narayanganj',
+        // 3 edits from 'narayanganj', beyond any fuzzy allowance.
+        'naraingonj' => 'Narayanganj',
         'নারায়ণগঞ্জ' => 'Narayanganj',
         // Legacy entry: doubled apostrophes (stray SQL-escaping artifact), left
         // as-is intentionally. Never matches real input; harmless dead weight
@@ -54,6 +60,8 @@ return [
         'faridpur' => 'Faridpur',
         'ফরিদপুর' => 'Faridpur',
         'tangail' => 'Tangail',
+        // 2 edits from 'tangail'; see 'gazipore'.
+        'tangile' => 'Tangail',
         'টাঙ্গাইল' => 'Tangail',
         'টাংগাইল' => 'Tangail',
         'manikganj' => 'Manikganj',
@@ -61,6 +69,10 @@ return [
         'munshiganj' => 'Munshiganj',
         'মুন্সিগঞ্জ' => 'Munshiganj',
         'narsingdi' => 'Narsingdi',
+        // Shibpur is an upazila of Narsingdi. Without this it fuzzy-matched
+        // 'sherpur' at 2 edits - Sherpur district, a different division and
+        // a different rate.
+        'shibpur' => 'Narsingdi',
         'নরসিংদী' => 'Narsingdi',
         'gopalganj' => 'Gopalganj',
         'গোপালগঞ্জ' => 'Gopalganj',
@@ -73,6 +85,13 @@ return [
         // Mymensingh-division
         'kishoreganj' => 'Kishoreganj',
         'কিশোরগঞ্জ' => 'Kishoreganj',
+        // 'kishore' is DELIBERATELY ABSENT, though Kishoreganj is often
+        // shortened to it. Kishore is a common given name, and when a message
+        // has no "District:" label the exact pass scans the WHOLE message -
+        // name line included - for an alias anywhere, with no word boundary.
+        // So the alias would route every customer named Kishore to
+        // Kishoreganj. Written alone, "Kishore" now resolves to no district,
+        // which is the intended outcome; it used to fuzzy-match 'jashore'.
         'netrokona' => 'Netrokona',
         'নেত্রকোণা' => 'Netrokona',
         'jamalpur' => 'Jamalpur',
@@ -331,14 +350,15 @@ return [
         'জয়দেবপুর' => 'Gazipur',
         'konabari' => 'Gazipur',
         'কোনাবাড়ী' => 'Gazipur',
-        // Sreepur and Kaliganj are DELIBERATELY ABSENT: each names an upazila
-        // in several districts (Sreepur in Gazipur and Magura; Kaliganj in
-        // Gazipur, Satkhira, Jhenaidah and Lalmonirhat), so mapping either to
-        // Gazipur would assert a district the text does not state. Both
-        // currently resolve WRONGLY through the fuzzy fallback - 'sreepur' to
-        // Sherpur and 'kaliganj' to Habiganj, each at edit distance 2 - which
-        // is recorded in docs/PROJECT-STATE.md as an open item against the
-        // fuzzy matcher rather than papered over here.
+        // 'sreepur' and 'kaliganj' are DELIBERATELY ABSENT, though both are
+        // common in Gazipur addresses: each names places in several districts
+        // - Sreepur in Gazipur and Magura; Kaliganj in Gazipur, Satkhira,
+        // Jhenaidah and Lalmonirhat - so mapping either to Gazipur would
+        // assert a district the text does not state, and charge a Satkhira
+        // or Jhenaidah order the Gazipur rate. Written without a district,
+        // both now resolve to NO district, which is the intended outcome:
+        // staff see an empty dropdown and pick. Until 7.2 they fuzzy-matched
+        // 'sherpur' and 'habiganj' at 2 edits - wrong, and invisible.
 
         // Mohakhali is a Dhaka-city area and was missing, while the fuzzy
         // fallback matched it to 'noakhali' at distance 2 - so a Mohakhali
