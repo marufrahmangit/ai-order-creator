@@ -4,7 +4,7 @@
  * What lives here is the username plus the APPLICATION password minted by
  * POST /token - never the account password, which is used for that one request
  * and then discarded. See "Login is a WordPress username and password" in
- * docs/PROJECT-STATE.md.
+ * docs/DECISIONS.md.
  *
  * localStorage, persisting until logout: staff stay signed in across app
  * launches, which is the point of replacing wp-admin on a phone. The origin

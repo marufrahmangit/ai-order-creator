@@ -9,7 +9,7 @@
  * copy of auth.js reading the same storage), a failure that is NOT a 401 does
  * not sign anyone out, and only three code paths can remove the credential at
  * all. What does look like being signed out is per-origin storage - see
- * "Signing in persists" in docs/PROJECT-STATE.md.
+ * "Signing in persists" in docs/DECISIONS.md.
  *
  * Run with `npm test` from app/.
  */

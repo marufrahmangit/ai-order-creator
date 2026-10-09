@@ -6,7 +6,7 @@
  * add-by-id control near the bottom of this file is an explicitly temporary
  * stand-in for it.
  *
- * Two rules from docs/PROJECT-STATE.md shape most of what follows:
+ * Two rules from docs/DECISIONS.md shape most of what follows:
  *
  *   - Validation mirrors WooCommerce, never stricter. An empty form saves.
  *     There is no required-field checking anywhere in here.
@@ -277,7 +277,7 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, onNewOrder, reord
    *
    * Deliberately not routed through here: the trash action, which has its own
    * confirmation and removes the order the edits belonged to, and a 401, after
-   * which nothing in the form could be saved anyway. See docs/PROJECT-STATE.md
+   * which nothing in the form could be saved anyway. See docs/DECISIONS.md
    * for the full list of exits and why.
    *
    * @param {string} key      Identifies the exit, e.g. 'close' or 'open:412'.

@@ -27,7 +27,7 @@ const check = (name, actual, expected) =>
 
 const logo = iconFile(SOURCE)
 
-// ---- the source, as recorded in docs/PROJECT-STATE.md ---------------------
+// ---- the source, as recorded in docs/DECISIONS.md ---------------------
 {
   const source = describeSource(logo)
   check('logo.png is 500x500', [source.width, source.height], [500, 500])

@@ -1,5 +1,5 @@
 {
-  "_source": "WooCommerce i18n/states.php, the 'BD' array, extracted as data (never executed) from woocommerce/woocommerce trunk on 2026-10-08. Trailing spaces in some labels ('Faridpur ', 'Manikganj ') are WooCommerce's own and are kept deliberately - see PROJECT-STATE.md.",
+  "_source": "WooCommerce i18n/states.php, the 'BD' array, extracted as data (never executed) from woocommerce/woocommerce trunk on 2026-10-08. Trailing spaces in some labels ('Faridpur ', 'Manikganj ') are WooCommerce's own and are kept deliberately - see DECISIONS.md.",
   "states": {
     "BD-05": "Bagerhat",
     "BD-01": "Bandarban",

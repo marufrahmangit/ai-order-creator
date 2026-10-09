@@ -343,7 +343,7 @@ const dismissOf = () => findNode(bannerOf(), (n) => n.textContent === 'Dismiss')
     /function beginScreen\(key\) \{[\s\S]{0,300}?clearUnsavedCheck\(\)/.test(main), true)
 
   // A beforeunload prompt fires on reload and tab close too, with a generic
-  // message no browser lets the page word. Decided against; see PROJECT-STATE.
+  // message no browser lets the page word. Decided against; see DECISIONS.md.
   const offenders = []
   const walk = (dir) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {

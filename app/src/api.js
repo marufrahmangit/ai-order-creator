@@ -3,7 +3,7 @@
  *
  * Every response from that namespace is JSON, every error is shaped
  * { code, message, data: { status } }, and money is always a bare numeric
- * string the client formats. See docs/PROJECT-STATE.md.
+ * string the client formats. See docs/DECISIONS.md.
  */
 
 import { getCredential, clearCredential } from './auth.js'

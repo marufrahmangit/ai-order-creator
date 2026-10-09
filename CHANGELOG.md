@@ -2,6 +2,14 @@
 
 All notable changes to AI Order Creator are documented in this file.
 
+> **Note on older entries.** `docs/` was three files from 7.6 onward:
+> `PROJECT-STATE.md` (what the project is, what is deployed, what is next),
+> `DECISIONS.md` (settled decisions and conventions) and `VERIFICATION.md` (what
+> has been proven against a server and what has not). Entries below written
+> before that say "recorded in `docs/PROJECT-STATE.md`" — most of those facts are
+> now in `DECISIONS.md` or `VERIFICATION.md`. The entries are left as written,
+> since they are a dated record; follow the split rather than the filename.
+
 ## 7.6
 
 - **Added the Bangla alias for Dhamrai** — `ধামরাই` → `Dhaka`. `dhamrai` had been in the ASCII area block since it was written, but **Bangla keys are matched exactly and get no fuzzy pass**, so an address written in Bangla could not reach it. 7.5 made that cost real: the AI is no longer allowed to supply a district, so a missing alias now means an empty dropdown in the app or a refusal in wp-admin. 6 codepoints and distinctive — the only Bangla words containing it are Dhamrai's own place names, all in Dhaka district anyway.

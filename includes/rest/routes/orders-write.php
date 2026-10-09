@@ -535,7 +535,7 @@ function ai_rest_update_order(WP_REST_Request $request) {
  * _wp_trash_meta_status (prefixed, e.g. "wc-pending") plus _wp_trash_meta_time,
  * and flips the row's status to 'trash'. wp_trash_post() is the legacy
  * post-storage equivalent and is deliberately NOT used. See
- * docs/PROJECT-STATE.md - this needs confirming against staging.
+ * docs/VERIFICATION.md - this needs confirming against staging.
  *
  * @param WP_REST_Request $request
  * @return WP_REST_Response|WP_Error
@@ -570,7 +570,7 @@ function ai_rest_trash_order(WP_REST_Request $request) {
  * _wp_trash_meta_status. There is no public HPOS untrash API to call, so this
  * reads that meta and sets the status back - the same approach WooCommerce's own
  * admin list table uses. Falls back to 'pending' when the meta is missing or no
- * longer a registered status. See docs/PROJECT-STATE.md.
+ * longer a registered status. See docs/DECISIONS.md.
  *
  * @param WP_REST_Request $request
  * @return WP_REST_Response|WP_Error

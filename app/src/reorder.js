@@ -9,7 +9,7 @@
  * REORDER ALWAYS OPENS OR FILLS A FORM. It never writes to the server. The new
  * order is created when the user taps Save, and gets its number then, like any
  * other new order. There is deliberately no second concept that creates an
- * order outright - see docs/PROJECT-STATE.md for why that was dropped rather
+ * order outright - see docs/DECISIONS.md for why that was dropped rather
  * than built.
  *
  * Pure: it reads an order and returns plain data. Applying it - which fields

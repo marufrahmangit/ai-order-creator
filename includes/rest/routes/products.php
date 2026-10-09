@@ -676,7 +676,7 @@ function ai_rest_variation_row(WC_Product_Variation $variation, $picker = false)
  * ai_rest_search_parent_product_ids() only ever matches parents, so a SKU that
  * belongs to a variation rather than its parent would otherwise be unfindable.
  * wc_get_product_id_by_sku() looks across products and variations alike. This
- * is exact-match only - see docs/PROJECT-STATE.md.
+ * is exact-match only - see docs/VERIFICATION.md.
  *
  * @param string $search
  * @param bool   $picker

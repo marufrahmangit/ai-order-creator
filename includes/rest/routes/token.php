@@ -17,7 +17,7 @@ if (!defined('ABSPATH')) exit;
  * written on the assumption that anyone on the internet can call it.
  *
  * It also sidesteps the Defender application-password truncation recorded in
- * docs/PROJECT-STATE.md: that defect is in wp-admin's DISPLAY of a new
+ * docs/PROJECT-STATE.md (Environment): that defect is in wp-admin's DISPLAY of a new
  * password. The plaintext here is read from the create call's return value,
  * before any admin screen is involved, so a truncated display cannot produce a
  * truncated credential.
