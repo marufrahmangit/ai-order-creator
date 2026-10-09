@@ -2,14 +2,17 @@
 
 Working brief for resuming this project cold. Present state only — git log is the history.
 
-Plugin header: **Order Ops v7.3**, Updated 2026-10-09. App **0.12.0**, named **CartMix Shop
+Plugin header: **Order Ops v7.4**, Updated 2026-10-09. App **0.12.0**, named **CartMix Shop
 Manager** to staff — see "Names" under Product decisions; the plugin is still "Order Ops".
-**Both sites run 7.1; the repo is at 7.3, and neither site has 7.2 or 7.3.** One upload
-covers both. 7.2 is a parser fix: places written without their district (Kishore,
+**Both sites run 7.1; the repo is at 7.4, and neither site has 7.2, 7.3 or 7.4.** One
+upload covers all three. **7.4 includes a money fix**: four districts saved orders with
+no shipping line at all, so uploading it matters more than the rest. 7.2 is a parser fix: places written without their district (Kishore,
 Sreepur, Kaliganj) now resolve to NO district instead of a wrong one, which used to mean
 a wrong shipping rate. 7.3 makes the order-list search behave like wp-admin's — one
 substring match over id, phone, name and address, with the term no longer normalized —
-and adds `timing_ms` to the `/orders` envelope. On staging,
+and adds `timing_ms` to the `/orders` envelope. 7.4 fixes four districts whose alias
+value was not a WooCommerce label, which meant no state code, which meant **no shipping
+charged**. On staging,
 7.1's decimal quantities are verified, through the API and in a browser. On live, only
 `POST /parse` has been verified (see Verified); nothing else in 6.7-7.1 has been
 exercised there yet.
@@ -56,7 +59,7 @@ passes its checks locally; steps 1-12 are verified on staging, 13-17 are not yet
 those checks are in the repo and one is not:
 
 - **`npm test` in `app/`** — fifteen JS suites, 458 assertions, plus two PHP suites
-  (94 assertions: the parser's 53 and the order-search args' 41) when it can find a PHP. In the repo. Run this first. Without a PHP it
+  (108 assertions: the parser's 67 and the order-search args' 41) when it can find a PHP. In the repo. Run this first. Without a PHP it
   prints SKIPPED for the PHP suite, by name, in the summary; set `PHP_BIN` to the
   portable PHP described under Conventions to run it, and `REQUIRE_PHP=1` to make a skip
   fail.
@@ -341,6 +344,23 @@ parser becomes one feature inside it, not the whole tool.
     text first, and only falls back to fuzzy matching when no alias appears anywhere. An
     input that names the district in full ("Sreepur, Gazipur") is decided by the exact
     pass, and says nothing about the fuzzy one.
+  - **An alias's VALUE in `bd-locations.php` must be a WooCommerce BD label, byte for
+    byte — and the right spelling is never the obvious one.** The keys look like the
+    interesting half; the value is where the file fails silently.
+    `ai_extract_state_from_text()` returns the value, and `ai_match_state_code()` has to
+    find it in `WC()->countries->get_states('BD')`. A value that is merely the district's
+    usual spelling gives a NAME and no CODE — and an order with no state code **gets no
+    shipping line at all**, because `ai_apply_shipping()` has nothing to price. The parse
+    preview looks correct and the order is short by 80-150 BDT.
+    - Four were wrong this way until 7.4, and in none of them is WooCommerce's spelling
+      the expected one: **`Netrakona`** not Netrokona, **`Jhalokati`** not Jhalokathi,
+      plain **`Nawabganj`** for Chapainawabganj, and **`Cox's Bazar`** with one
+      apostrophe where the file had two. Nine aliases between them.
+    - `state-matching.test.php` now compares every value against the label list
+      **directly**, not through `ai_match_state_code()`. That function's second pass
+      re-runs the alias search on its own argument, so a bad value is rescued whenever
+      some other alias points at the right district — which is exactly how these four
+      survived. Asserting through it would have passed.
   - **`tests/**/*.test.php` are the committed PHP suites**, discovered by filename and
     run by `npm test` when a PHP is available (above) — currently
     `tests/parser/state-matching.test.php` and `tests/rest/order-search.test.php`. They
@@ -1833,6 +1853,34 @@ shipping fix — **confirmed on staging and in a browser**. `/ping` reports `7.0
   product does not disturb the fees in the same round trip. The two lists are
   independently scoped in the code and the contract check asserts the payload semantics,
   so this is a verification gap rather than a suspected defect.
+- **Groq's `state` is accepted without being checked against the input text, so the AI
+  path can put a district on an order that the text never mentions.** This is the 7.2
+  principle — *a wrong district is worse than none* — being enforced in the deterministic
+  matcher and bypassed entirely by the fallback.
+  - How it happens: `ai_should_call_ai()` is true whenever ANY field is empty, including
+    `state`. So a district the matcher declines to guess sends the whole message to Groq,
+    whose prompt asks for "the Bangladesh district/city name that **best matches**" —
+    an invitation to guess. `ai_merge_parsed_data()` then fills the empty state with
+    whatever came back, `ai_match_state_code()` resolves it happily because it IS a real
+    district, and `ai_ensure_state_in_address()` appends it to the address.
+  - **Observed in a live order**, which is what found the 7.4 alias bugs: an address
+    ending `নেএকোণা` got `Chandpur`, in the state field and appended to the address.
+    Chandpur and Netrakona are both Outside Dhaka, so the rate happened to match; a
+    guess landing on Dhaka or Gazipur instead would have been 80 or 120 against 150.
+  - **Not fixed, because the fix is a decision about what the AI may contribute.** The
+    options, and what each costs:
+    - *Reject any Groq district the deterministic matcher cannot also find in the text.*
+      Consistent with 7.2 and with the alias file's own remedy. Loses the case where
+      Groq correctly infers a district from an upazila our table does not list — the
+      text says `মদন` and a human knows that is Netrakona.
+    - *Keep it, and make the prompt refuse to guess* ("return empty unless the district
+      is written in the message"). Cheaper, but it is a request not a guarantee, and
+      nothing downstream would catch a model that ignored it.
+    - *Keep it and mark it* — accept the district but flag it in the response as
+      inferred, so the app can show it unconfirmed. Most work; keeps the capability.
+  - Whichever way it goes, the current behaviour should not be left undocumented: a
+    district nobody typed can reach an order, and the only evidence is that it looks
+    slightly wrong to someone who knows the area.
 - **Thumbnails would reintroduce a per-row lookup.** `ai_rest_product_thumbnail()` calls
   `wp_get_attachment_image_url()`, which loads an ATTACHMENT post that priming the
   product ids does not cover. Harmless today — every thumbnail in this store is null, so

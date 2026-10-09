@@ -1,4 +1,33 @@
 <?php
+/**
+ * Area and spelling aliases for Bangladesh districts.
+ *
+ * THE VALUE MUST BE A WooCommerce BD STATE LABEL, BYTE FOR BYTE.
+ *
+ * It is the left-hand side that looks like the interesting part, but the value
+ * is where this file goes wrong silently. ai_extract_state_from_text() returns
+ * the value, and ai_match_state_code() then has to find it in
+ * WC()->countries->get_states('BD'). A value that is merely the district's
+ * usual spelling resolves to a NAME and no CODE - and an order with no state
+ * code gets no shipping line at all, since ai_apply_shipping() has nothing to
+ * price. The parse preview looks right; the order is undercharged.
+ *
+ * Four were wrong this way until 7.4, and WooCommerce's spelling is not the
+ * obvious one in any of them: it is 'Netrakona' not Netrokona, 'Jhalokati' not
+ * Jhalokathi, plain 'Nawabganj' for Chapainawabganj, and "Cox's Bazar" with one
+ * apostrophe. tests/parser/state-matching.test.php now checks every value in
+ * this file against the real list, so a new one cannot be added wrong.
+ *
+ * TWO MORE RULES, both load-bearing:
+ *
+ *   - KEYS ARE MATCHED AS SUBSTRINGS, IN INSERTION ORDER, first hit wins. A key
+ *     that is a substring of a longer place name must be listed AFTER it:
+ *     'tongibari' (Munshiganj) and 'tungipara' (Gopalganj) come before the
+ *     Tongi block for exactly that reason. Check a new key both ways round.
+ *   - Bangla keys are matched EXACTLY; only ASCII keys get the fuzzy pass in
+ *     location.php. So every Bangla spelling worth supporting has to be listed
+ *     here, including real misspellings seen in live orders.
+ */
 if (!defined('ABSPATH')) exit;
 
 return [
@@ -36,7 +65,7 @@ return [
         // Legacy entry: doubled apostrophes (stray SQL-escaping artifact), left
         // as-is intentionally. Never matches real input; harmless dead weight
         // now that the correctly-spelled entries below it exist.
-        "cox''s bazar" => "Cox''s Bazar",
+        "cox''s bazar" => "Cox's Bazar",
         "cox's bazar" => "Cox's Bazar",
         'coxs bazar' => "Cox's Bazar",
         'cox bazar' => "Cox's Bazar",
@@ -92,8 +121,15 @@ return [
         // So the alias would route every customer named Kishore to
         // Kishoreganj. Written alone, "Kishore" now resolves to no district,
         // which is the intended outcome; it used to fuzzy-match 'jashore'.
-        'netrokona' => 'Netrokona',
-        'নেত্রকোণা' => 'Netrokona',
+        'netrokona' => 'Netrakona',
+        'netrakona' => 'Netrakona',
+        // Both Bengali spellings are in real use - ণ and ন - and the one a
+        // customer writes is not a choice this code gets to make.
+        'নেত্রকোণা' => 'Netrakona',
+        'নেত্রকোনা' => 'Netrakona',
+        // A real misspelling from a live order: the ত্র ligature dropped to এ.
+        // Listed exactly, because Bangla gets no fuzzy pass - see location.php.
+        'নেএকোণা' => 'Netrakona',
         'jamalpur' => 'Jamalpur',
         'জামালপুর' => 'Jamalpur',
         'sherpur' => 'Sherpur',
@@ -137,9 +173,12 @@ return [
         'নাটোর' => 'Natore',
         'naogaon' => 'Naogaon',
         'নওগাঁ' => 'Naogaon',
-        'chapainawabganj' => 'Chapainawabganj',
-        'nawabganj' => 'Chapainawabganj',
-        'চাঁপাইনবাবগঞ্জ' => 'Chapainawabganj',
+        // WooCommerce's label for BD-45 is the bare "Nawabganj", not
+        // "Chapainawabganj" - so that is what these have to resolve to, however
+        // the district is usually written.
+        'chapainawabganj' => 'Nawabganj',
+        'nawabganj' => 'Nawabganj',
+        'চাঁপাইনবাবগঞ্জ' => 'Nawabganj',
         'joypurhat' => 'Joypurhat',
         'জয়পুরহাট' => 'Joypurhat',
         'sirajganj' => 'Sirajganj',
@@ -181,9 +220,9 @@ return [
         // Barishal-division
         'pirojpur' => 'Pirojpur',
         'পিরোজপুর' => 'Pirojpur',
-        'jhalokathi' => 'Jhalokathi',
-        'jhalakathi' => 'Jhalokathi',
-        'ঝালকাঠি' => 'Jhalokathi',
+        'jhalokathi' => 'Jhalokati',
+        'jhalakathi' => 'Jhalokati',
+        'ঝালকাঠি' => 'Jhalokati',
         'bhola' => 'Bhola',
         'ভোলা' => 'Bhola',
         'patuakhali' => 'Patuakhali',

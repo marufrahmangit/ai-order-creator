@@ -138,6 +138,82 @@ foreach (['azimpur' => 'Dhaka', 'gazipur' => 'Gazipur', 'meherpur' => 'Meherpur'
     check("near-neighbour \"$text\" stays $district", ai_extract_state_from_text($text), $district);
 }
 
+// ---- every alias must resolve to a real STATE CODE, not just a name -----------
+//
+// The guard that was missing. bd-locations.php maps a spelling to a district
+// NAME, and ai_match_state_code() then has to find that name in WooCommerce's
+// own BD list. Four values did not exist in that list - 'Netrokona',
+// 'Jhalokathi', 'Chapainawabganj' and a "Cox''s Bazar" with a doubled
+// apostrophe - so nine aliases between them resolved to a name and NO code.
+//
+// That fails silently in the worst direction. The parse preview shows a
+// district, the order saves with an empty state, and ai_apply_shipping() prices
+// nothing because it has no state to price - so the order goes out with no
+// shipping line at all. Nothing about it looks wrong until the money is short.
+//
+// Asserted over the whole file rather than per district, so a new alias cannot
+// be added with a plausible-looking value that WooCommerce does not use.
+// Compared against the LABEL LIST directly, not through
+// ai_match_state_code(). That function has a second pass which re-runs the
+// alias search on its own argument, so a bad value gets rescued whenever some
+// other alias happens to point at the right district - which is precisely how
+// four of these survived. The invariant is that the value IS a label, so that
+// is what gets asserted.
+$manual_aliases = require AIOC_PATH . 'includes/parsing/data/bd-locations.php';
+$wc_labels = array_map(
+    fn($label) => strtolower(trim(ai_normalize_apostrophes($label))),
+    array_values(WC()->countries->get_states('BD'))
+);
+$unmatched = [];
+foreach ($manual_aliases as $alias => $target) {
+    $normalized = strtolower(trim(ai_normalize_apostrophes((string) $target)));
+    if (!in_array($normalized, $wc_labels, true)) {
+        $unmatched[] = "$alias => $target";
+    }
+}
+check('every VALUE in bd-locations.php is a WooCommerce BD label', $unmatched, []);
+
+// And end to end, which is what actually matters: typing the alias gets a code.
+$codeless = [];
+foreach ($manual_aliases as $alias => $target) {
+    $name = ai_extract_state_from_text((string) $alias);
+    if ($name === '' || ai_match_state_code($name) === '') {
+        $codeless[] = (string) $alias;
+    }
+}
+check('and every alias still gets a code when TYPED', $codeless, []);
+
+// The four that were broken, pinned by name against WooCommerce's spelling -
+// none of which is the one you would guess.
+foreach ([
+    'netrokona'       => 'BD-41',
+    'নেত্রকোণা'       => 'BD-41',
+    'নেত্রকোনা'       => 'BD-41',
+    'নেএকোণা'         => 'BD-41',
+    'jhalokathi'      => 'BD-25',
+    'ঝালকাঠি'         => 'BD-25',
+    'chapainawabganj' => 'BD-45',
+    'চাঁপাইনবাবগঞ্জ'  => 'BD-45',
+    "cox''s bazar"    => 'BD-11',
+    "cox's bazar"     => 'BD-11',
+] as $text => $code) {
+    check("\"$text\" resolves to $code", ai_match_state_code(ai_extract_state_from_text($text)), $code);
+}
+
+// The live order that found this: a misspelling with the ত্র ligature dropped.
+// It used to resolve to nothing, which sent the parser to Groq, which guessed
+// Chandpur - a different district entirely, at the same flat rate by luck.
+check('the live misspelling resolves to Netrakona',
+      ai_extract_state_from_text('বাঁশরী সরকারি প্রাথমিক বিদ্যালয়,বাঁশরী,মদন,নেএকোণা।'),
+      'Netrakona');
+check('and the whole message needs no AI, so nothing can guess a district',
+      ai_should_call_ai(ai_build_deterministic_parse(
+          "Mahadi Mahabin মনি 
+০১৭৭০০৯০০৩৫
+বাঁশরী সরকারি প্রাথমিক বিদ্যালয়,বাঁশরী,মদন,নেএকোণা।"
+      )),
+      false);
+
 $failed = 0;
 foreach ($results as [$name, $pass, $actual, $expected]) {
     if (!$pass) $failed++;

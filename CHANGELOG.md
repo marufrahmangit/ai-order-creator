@@ -2,6 +2,27 @@
 
 All notable changes to AI Order Creator are documented in this file.
 
+## 7.4
+
+- **Fixed four districts that resolved to a name but no state code — so an order for any of them saved with an empty state and therefore NO SHIPPING LINE AT ALL.** Found from a live order whose address ended `নেএকোণা` and came back as *Chandpur*.
+  - `bd-locations.php` maps a spelling to a district **name**, and `ai_match_state_code()` then has to find that name in WooCommerce's own BD list. Four values were not in it:
+
+    | file said | WooCommerce says | code |
+    |---|---|---|
+    | `Netrokona` | `Netrakona` | BD-41 |
+    | `Jhalokathi` | `Jhalokati` | BD-25 |
+    | `Chapainawabganj` | `Nawabganj` | BD-45 |
+    | `Cox''s Bazar` | `Cox's Bazar` | BD-11 |
+
+    Nine aliases between them. **None of WooCommerce's spellings is the one you would guess**, which is why this went unnoticed.
+  - **The failure was silent in the worst direction.** The parse preview showed a district. The order saved with an empty state. `ai_apply_shipping()` priced nothing, because it had no state to price. So the order went out **short by 80–150 BDT** with nothing looking wrong anywhere.
+  - Every value in the file now matches a WooCommerce label byte for byte.
+- **Added the Bengali spellings for Netrakona.** Both `নেত্রকোণা` and `নেত্রকোনা` are in real use — ণ and ন — and the one a customer writes is not a choice this code gets to make. The live misspelling `নেএকোণা`, with the `ত্র` ligature dropped, is listed too: **Bangla gets no fuzzy pass, by design**, so every spelling worth supporting has to be listed exactly. Checked for substring collisions in both directions first, as the file requires.
+- **The *Chandpur* in the report was not the matcher.** The deterministic parse correctly resolved **no** district — which is what 7.2 made it do rather than guess. That left `state` empty, which made `ai_should_call_ai()` true, so Groq was asked, and Groq guessed. **Its answer is accepted without being checked against the input text**, so a plausible-looking wrong district passes straight through, and `ai_ensure_state_in_address()` then appends it to the address — which is why the address read `…নেএকোণা, Chandpur`.
+  - With the alias added, this input no longer reaches Groq at all.
+  - **The general hole is still open**, and is recorded as an open item rather than quietly closed, because closing it means deciding what the AI is allowed to contribute. See *Unverified / open*.
+- **`tests/parser/state-matching.test.php`: 53 → 67 assertions**, including the guard that was missing. Every **value** in `bd-locations.php` is compared against WooCommerce's label list **directly**, not through `ai_match_state_code()` — that function's second pass re-runs the alias search on its own argument, so a bad value is rescued whenever another alias happens to point at the right district, which is exactly how these four survived. Confirmed the guard fails when any one target is put back.
+
 ## 7.3
 
 - **`GET /orders?search=` now behaves like WooCommerce's own order search.** One box, one substring match across order id, phone, name and address at once — rather than a sequence of typed guesses. The term is passed through **untouched**, with `search_filter => 'all'`.
