@@ -2,143 +2,137 @@
 
 Working brief for resuming this project cold. Present state only — git log is the history.
 
-Plugin header: **Order Ops v7.5**, Updated 2026-10-09. App **0.12.0**, named **CartMix Shop
-Manager** to staff — see "Names" under Product decisions; the plugin is still "Order Ops".
-**Both sites run 7.1; the repo is at 7.5, and neither site has 7.2 through 7.5.** One
-upload covers all four. **7.4 includes a money fix**: four districts saved orders with no
-shipping line at all, so uploading it matters more than the rest. 7.2 is a parser fix: places written without their district (Kishore,
-Sreepur, Kaliganj) now resolve to NO district instead of a wrong one, which used to mean
-a wrong shipping rate. 7.3 makes the order-list search behave like wp-admin's — one
-substring match over id, phone, name and address, with the term no longer normalized —
-and adds `timing_ms` to the `/orders` envelope. 7.4 fixes four districts whose alias
-value was not a WooCommerce label, which meant no state code, which meant **no shipping
-charged**. 7.5 stops the AI fallback supplying a district the customer never typed, and
-makes the wp-admin create button refuse rather than write an order with no district. On staging,
-7.1's decimal quantities are verified, through the API and in a browser. On live, only
-`POST /parse` has been verified (see Verified); nothing else in 6.7-7.1 has been
-exercised there yet.
+## What this is
 
-**Build steps 1 through 11 are built AND verified on staging** — the API layer by real
-requests, the app in a browser, including as an installed standalone PWA. Steps 8-11
-came after the original seven-step plan and were verified at 6.8 and 7.0; what those
-checks did NOT cover is listed under Unverified / open.
+A **mobile-first PWA for WooCommerce staff to create, update and trash orders**, served
+from its own subdomain, replacing the use of wp-admin on a phone. Two deliverables in one
+repo:
 
-**Step 12 — decimal quantities (7.1 / app 0.6.0) — is verified on staging**, by real
-requests and in a browser. It was a correctness fix: the *Decimal Product Quantity for
-WooCommerce* plugin is active on BOTH sites, and every plugin up to 7.0 `(int)`-cast
-quantity, so a fractional quantity was silently saved as a whole number. Both sites now
-run 7.1.
+- **The plugin** (`ai-order-creator.php`, `includes/`, `admin/`) — a WordPress plugin
+  called **Order Ops**, which exposes the `aioc/v1` REST API the app talks to, and still
+  carries the original AI text parser and its wp-admin screens.
+- **The app** (`app/`) — a vanilla-ES-modules PWA built with Vite, called **CartMix Shop
+  Manager** to staff. Deployed as built output, not source.
 
-**Steps 13-17 — New order from the form (app 0.6.0), the unsaved-changes guard on every
-exit from the form (app 0.7.0), that warning made visible plus the update banner's
-Reload guarded (app 0.8.0), Save kept clear of the update banner (app 0.9.0), and the
-CartMix logo as every icon plus a password Show/Hide on the login screen (app 0.10.0) —
-are app-only, pass every local check, and have not been seen in a browser.**
+The store is **cartmixbd.com**, a Bangladesh retailer. Orders arrive as messy pasted chat
+messages in Bangla, English or both; the parser turns one into a draft order. That parser
+predates the app and is now one feature inside it, not the whole tool.
 
-**Live jumped from 6.6 to 7.1 in one upload**, taking 6.7 (`GET /customers/last-order`),
-6.8 (its correction), 6.9 (`shipping_rates` in `/meta`), 7.0 (the shipping
-data-correctness fix) and 7.1 (fractional quantities) together. Only `/parse` has been
-confirmed there so far.
+## Where things stand
 
-**7.0 carries a data fix that existing orders do not get for free.** Any order whose
-district was cleared while 6.x was running still holds a stale shipping line and a total
-that includes it. The fix prevents new ones; it does not repair old ones. Each needs one
-save after the upload — confirmed on staging, where saving order 11361 cleared its line.
-Live has had the same 6.x code, so the same can be true there. See Unverified / open for
-what is and is not known about how many.
+| | repo | staging | live |
+|---|---|---|---|
+| Plugin | **7.6** | 7.1 | 7.1 |
+| App | **0.12.0** | served from `npm run dev` on a laptop | not deployed |
 
-**What remains before this is usable in production is operational, not code.** See the
-list below.
+**The repo is five plugin versions ahead of both sites.** 7.2 through 7.6 are committed
+and none is uploaded; **one upload covers all five**. What is waiting:
+
+| | what it does | why it matters |
+|---|---|---|
+| 7.2 | places written without their district resolve to NO district, not a wrong one | a wrong district meant a wrong shipping rate |
+| 7.3 | order-list search matches wp-admin's — one substring match over id, phone, name, address; adds `timing_ms` | staff use both boxes |
+| **7.4** | **four districts whose alias value was not a WooCommerce label** | **those orders saved with NO shipping line — short by 80-150 BDT** |
+| 7.5 | the AI can no longer supply a district the customer never typed; wp-admin's create button refuses without one | a district nobody typed was reaching orders |
+| 7.6 | `ধামরাই` added in Bangla; Madan deliberately left out | a missing Bangla alias now costs a dropdown pick |
+
+**7.4 is the reason not to leave this sitting.** It is a money fix, and it does not repair
+orders already saved wrong — each needs one save after the upload.
+
+**The app has never been deployed.** There is no subdomain yet; it runs from a dev server
+against staging. Nothing in the app can reach live, because `ai_app_origin` there is
+expected to be empty, so CORS grants nothing.
 
 ## Start here
 
-**Read this section, then the Build steps table, then Unverified / open. Those three
-say what exists, what is proven, and what is merely written down.**
+**You are reading the only handoff.** This file is maintained as the present state of the
+project; `git log` is the history. If something here disagrees with the code, the code
+wins and this file is wrong — fix it in the same commit.
 
-**There is no feature work queued.** Everything in the Build steps table is built and
-passes its checks locally; steps 1-12 are verified on staging, 13-17 are not yet. Two of
-those checks are in the repo and one is not:
+**Read in this order:** this section, then *Where things stand* above, then *Build steps*,
+then *Unverified / open*. Those say what exists, what is proven, and what is only written
+down. *Open decisions* lists what is waiting on a judgement call.
 
-- **`npm test` in `app/`** — fifteen JS suites, 458 assertions, plus two PHP suites
-  (124 assertions: the parser's 83 and the order-search args' 41) when it can find a PHP. In the repo. Run this first. Without a PHP it
-  prints SKIPPED for the PHP suite, by name, in the summary; set `PHP_BIN` to the
-  portable PHP described under Conventions to run it, and `REQUIRE_PHP=1` to make a skip
-  fail.
-- **`php -l` over all 29 PHP files** — needs the portable PHP described under
-  Conventions, which is not in the repo either but takes one download to set up.
-- **A contract check** that greps the real PHP and JS source and asserts every field
-  name and behavioural rule they must agree on — 196 assertions at 7.0, not rebuilt for
-  7.1 (the PHP/JS quantity agreement is pinned in `npm test` instead). **This is a
-  scratch tool, rebuilt per session, and is NOT in the repo.** Do not go looking for it.
-  It is mentioned because the counts quoted in this document came from it, and because
-  rebuilding it is cheap and has caught real drift; but `npm test` is the durable check.
+### First, confirm the repo is intact — no server needed
 
-None of them needs a server.
+```
+cd app && npm test
+```
 
-**The next work is deployment and verification, and it is operational, not code.** In
-order, because each step depends on the one before:
+Fifteen JS suites (458 assertions) plus two PHP suites (133: the parser's 92 and the
+order-search args' 41). Suites are discovered by filename, so a new one cannot be
+forgotten. Without a PHP on the PATH the PHP suites print **SKIPPED by name** in the
+summary rather than vanishing; set `PHP_BIN` to the portable PHP described under
+Conventions to run them, and `REQUIRE_PHP=1` to make a skip count as failure.
 
-1. ~~Upload 7.1 to staging~~ — **done**; decimal quantities verified there. **Upload 7.2
-   to staging, then live**, and confirm `/ping` reports `7.2`. Check on staging that
-   `POST /parse` with "House 5, Kishore" or "Sreepur bazar" returns no district, and
-   that "Kishoreganj Sadar, Kishoreganj" and "Sreepur, Gazipur" still return BD-26 and
-   BD-18.
-2. Check the app-only steps 13-17 against staging from `npm run dev` — the specifics
-   are under Unverified / open.
-3. ~~Upload 7.1 to live~~ — **done**; live runs 7.1, and `/parse` is verified there.
-   Confirm `/ping` reports `7.1` when next on live, since only `/parse` has been called.
-4. Find and re-save any live order with an empty billing state and a shipping line —
-   the 6.x stale-shipping defect. Unverified / open says how to find them.
-5. Stand up `ops.cartmixbd.com`, then `npm run build` in `app/` and upload `app/dist/`.
-6. Change `ai_app_origin` to `https://ops.cartmixbd.com`. **This breaks local development
-   until changed back** — it holds one origin, not a list.
-7. Decide whether the app points at live. **Live's REST layer has been exercised only by
-   `POST /parse`**, and `ai_app_origin` is expected to be empty there, which means no browser can reach
-   it. Confirm that before assuming either way: empty is the safe state, and it is also
-   what would make a first attempt from the app fail with no CORS headers.
+`php -l` over all 29 PHP files is the other local check, and needs that same portable PHP.
 
-Steps 2 and 4 can be done today. Steps 5-7 need the subdomain.
+> A third check is referred to in places: a **contract check** that greps the real PHP and
+> JS source and asserts the field names and behavioural rules they must agree on, ~196
+> assertions. **It is a scratch tool, rebuilt per session, and is NOT in this repo.** Do
+> not go looking for it. `npm test` is the durable check.
 
-**Two traps when testing the production build on localhost, both of which have already
-cost a debugging round:**
+### Then, the work that is actually queued
+
+**There is no feature work queued.** Everything in *Build steps* is built and passes its
+local checks. What remains is deployment and verification, in this order because each
+depends on the one before:
+
+1. **Upload the plugin to staging and confirm `GET /aioc/v1/ping` reports `7.6`.** A
+   stale version here produces misleading 404s on new routes, so do not skip the check.
+2. **Verify 7.4 on staging**, which is the money fix: `GET /meta` returns `shipping_rates`
+   with BD-13 at 80.00 and BD-18 at 120.00, and an order for Netrakona, Jhalokati,
+   Nawabganj or Cox's Bazar now gets a shipping line.
+3. **Spot-check 7.2, 7.3, 7.5** — `POST /parse` with "House 5, Kishore" returns no
+   district while "Kishoreganj Sadar, Kishoreganj" returns BD-26; `GET /orders?search=`
+   with a phone fragment, an order id and a Bangla address fragment.
+4. **Check app steps 13-17 against staging from `npm run dev`.** They are app-only and
+   have never been seen in a browser. The specifics are under *Unverified / open*.
+5. **Upload the plugin to live, confirm `/ping`.** Live has had only `POST /parse` called
+   against it, ever.
+6. **Find and re-save any live order with an empty billing state and a shipping line** —
+   the 6.x stale-shipping defect. *Unverified / open* has the query.
+7. **Stand up `ops.cartmixbd.com`**, then `npm run build` in `app/` and upload
+   `app/dist/`. Read the deploy rules under Environment first — an upload must replace,
+   not merge.
+8. **Change `ai_app_origin` to `https://ops.cartmixbd.com`.** This breaks local
+   development until changed back; it holds one origin, not a list.
+
+Steps 4 and 6 can be done today. Steps 7-8 need the subdomain.
+
+### What not to touch
+
+- **The plugin folder name** `ai-order-creator/`. Renaming it deactivates the plugin on
+  live. The same goes for the text domain, the `ai_` function prefix, the `aioc/v1`
+  namespace and the wp-admin page slug `ai-order-creator` — all are internal identifiers
+  that outlive the product name. See *Names* under Product decisions.
+- **`ai_normalize_bd_phone()`'s behaviour**, which `app/src/phone.js` duplicates
+  line-for-line and `phone-parity.test.mjs` pins to values generated by running the PHP.
+  If the PHP changes, regenerate those values; never edit them to pass.
+- **`/products`' default response shape and its sort window.** That shape is the verified
+  one. `/products` is also done being optimised: server-side search is 40-90ms against
+  several hundred ms of round-trip, so the network dominates.
+- **The rate table in `includes/orders/shipping.php`** without reading the notes on it.
+  It is the single source of shipping truth and `/meta` serves it to the app.
+- **The service worker's rule that no `/wp-json/` response is ever cached.** This app
+  reads and writes live order data; a cached order list is a staff member acting on state
+  that has moved.
+
+### Two traps when testing the production build on localhost
+
+Both have already cost a debugging round.
 
 - **`npm run preview` serves on port 4173, not 5173**, so `ai_app_origin` will not match
   and every request fails CORS. Use `npx vite preview --port 5173`, or change the setting
-  for the duration. The symptom is misleading: **the preflight still returns 200** and
-  only the actual request fails, which looks like anything but CORS.
+  for the duration. The symptom misleads: **the preflight still returns 200** and only the
+  actual request fails, which looks like anything but CORS.
 - **A service worker registered during a `vite preview` run PERSISTS, and then serves a
-  stale cached shell to `npm run dev`** — dev and preview share the `localhost` origin,
-  so the worker installed by one controls the other. The symptom does not look like
-  caching: unstyled serif text, and a hashed CSS filename in the Network tab while the
-  dev server is running. Unregister the worker and clear site data, or leave **Bypass
-  for network** ticked in DevTools while developing. The worker is production-only when
-  REGISTERED, but nothing un-registers it when you switch back to dev.
-
-**Still outstanding operationally, none of it code:**
-
-- `ops.cartmixbd.com` is **not stood up**. The app is served from `npm run dev`.
-- `ai_app_origin` on staging is `http://localhost:5173` and **must change at deploy**.
-  It holds one origin, so flipping it breaks local development until flipped back.
-- **Live runs 7.1.** Its REST layer has been called only by `POST /parse` — every other
-  verification in this document was against staging.
-- **`ai_app_origin` is expected to be EMPTY on live**, which means
-  `ai_rest_cors_headers()` grants nothing and no browser can reach the API. That is the
-  safe default and the reason the app cannot accidentally talk to live today. Worth
-  confirming rather than assuming, because an empty setting is also indistinguishable
-  from a misconfigured one until something tries.
-- `app/dist/` must be rebuilt before any deploy; `VITE_API_BASE` is baked in at build
-  time.
-
-**`/products` is done being optimised.** Server-side search now costs 40-90ms against
-several hundred ms of round-trip latency, so network dominates and further server-side
-work on it is not worthwhile. Remaining latency belongs to the step 6 picker, hidden
-client-side.
-
-## Goal
-
-A mobile-first PWA for WooCommerce staff to create, update, and trash orders, served
-from a separate subdomain. Replaces using wp-admin on a phone. The existing AI text
-parser becomes one feature inside it, not the whole tool.
+  stale cached shell to `npm run dev`** — dev and preview share the `localhost` origin, so
+  the worker installed by one controls the other. The symptom does not look like caching:
+  unstyled serif text, and a hashed CSS filename in the Network tab while the dev server
+  is running. Unregister the worker and clear site data, or leave **Bypass for network**
+  ticked in DevTools while developing. The worker is production-only when REGISTERED, but
+  nothing un-registers it when you switch back to dev.
 
 ## Environment
 
@@ -220,11 +214,10 @@ parser becomes one feature inside it, not the whole tool.
     another.
   - **If custom statuses stop appearing in `/meta` after a snippet edit, re-save the
     snippet or clear Code Snippets' cache before suspecting this repo** — that is what
-    fixed it once already. Its active-snippets cache
-  is keyed per scope group, so a stale entry can leave the snippet running in wp-admin
-  while a REST request sees the unfiltered list. Our side holds no status cache at all:
-  `meta.php`, `orders.php` and `orders-write.php` each call `wc_get_order_statuses()`
-  live, per request.
+    fixed it once already. Its active-snippets cache is keyed per scope group, so a stale
+    entry can leave the snippet running in wp-admin while a REST request sees the
+    unfiltered list. Our side holds no status cache at all: `meta.php`, `orders.php` and
+    `orders-write.php` each call `wc_get_order_statuses()` live, per request.
 - **`ai_app_origin` on staging is currently `http://localhost:5173`** — the Vite dev
   server — so CORS grants reach a local dev machine and nothing else. It must become
   `https://ops.cartmixbd.com` when the built app is deployed. **The setting holds one
@@ -1388,6 +1381,12 @@ parser becomes one feature inside it, not the whole tool.
 | 15 | Exit warning shown in the header; update banner's Reload guarded | done, **unverified in a browser** | app 0.8.0 |
 | 16 | Save bar lifted clear of the update banner, by its measured height | done, **unverified in a browser** | app 0.9.0 |
 | 17 | CartMix logo as every icon and on the login screen; password Show/Hide | done, **unverified on a device** | app 0.10.0 |
+| 18 | Order-list search matching wp-admin's; `timing_ms` on `/orders` | done, **not yet on staging** | 7.3 / app 0.12.0 |
+| 19 | District from the customer's text only; wp-admin create refuses without one | done, **not yet on staging** | 7.5 |
+
+**Rows 18-19 and the three correctness fixes beside them (7.2, 7.4, 7.6) are the only
+work neither site has.** The fixes are not build steps and are listed in *Where things
+stand* at the top instead, with what each one does and why 7.4 matters most.
 
 **Steps 1-7 are the original plan, and all seven are built and verified** — the API layer
 by real requests against staging, the app in a browser as an installed PWA.
@@ -1943,8 +1942,8 @@ shipping fix — **confirmed on staging and in a browser**. `/ping` reports `7.0
 - **Recorded here but NOT verifiable from this repo.** Everything below is written down
   because it was observed once; none of it can be re-checked by reading the code, so
   treat it as a claim with a date on it rather than a fact:
-  - **Which plugin version each site runs** (live 7.1, staging 7.1). Only
-    `GET /aioc/v1/ping` can answer this. Check it before trusting any other statement
+  - **Which plugin version each site runs** (live 7.1, staging 7.1 — the repo is at
+    7.6). Only `GET /aioc/v1/ping` can answer this. Check it before trusting any other statement
     about the servers.
   - **`ai_app_origin`'s value on either site** — `http://localhost:5173` on staging,
     expected empty on live. Both are settings in wp-admin. The live one in particular is
@@ -1968,11 +1967,106 @@ shipping fix — **confirmed on staging and in a browser**. `/ping` reports `7.0
   - **The 4505 orders / 1502 pages scale figures**, and every timing in milliseconds.
     Staging data, at one moment.
 
+## Open decisions
+
+Four things are waiting on a judgement call rather than on work. Each is written to be
+actionable without any other context.
+
+- **Fold the two Code Snippets entries into the plugin.** Both are required for features
+  this repo owns, and both live in a database row that a migration can drop silently.
+  - *The custom-status snippet* hooks `wc_order_statuses`. Without it, orders keep their
+    stored status but the status is no longer registered, so they fall out of wp-admin's
+    lists and out of `/meta` — and the app's status dropdown loses them. This is the one
+    that matters more.
+  - *"Decimal qty step fix (order edit)"* sets `step="0.01"`/`min="0.01"` on wp-admin's
+    order-item quantity inputs and re-applies them with a `MutationObserver` after each
+    AJAX re-render. Without it, wp-admin's Update and Create buttons silently do nothing
+    for a fractional quantity. The app does not need it; the REST path never touches
+    those inputs.
+  - **How to do it:** the way 4.9 did the shipping table. Ship the plugin version that
+    carries the code, then **delete the snippet on both sites in the same sitting**, so
+    two copies are never both running. A folded-in step fix should check that the Decimal
+    Product Quantity plugin is active rather than assume it.
+  - **Why it is not done:** neither snippet's code has been read from here, and folding in
+    behaviour nobody has reviewed would replace a known-working database row with an
+    unverified copy. Read them first.
+- **Three "AI Order Creator" strings remain in wp-admin.** The product is called Order
+  Ops; `admin/menu.php` still shows the old name in three places — the submenu page title
+  and menu label (lines 7-8) and the `<h2>` on the page itself (line 48).
+  - **Change only those three display strings.** The page slug `ai-order-creator`, the
+    callback `ai_order_creator_page()` and the capability stay exactly as they are: the
+    slug is the admin URL and the menu key, and renaming identifiers is what *Names*
+    forbids.
+  - Trivial, but deliberately not bundled into a behavioural commit.
+  - `README.md` and the `CHANGELOG.md` intro line say "AI Order Creator" too — see
+    Housekeeping. Those are repo text, not wp-admin, and are a separate call.
+- **Whether wp-admin's create-refusal proves too disruptive.** Since 7.5, "Create Order
+  with AI" resolves the district before writing and **refuses** when there is none,
+  rather than creating an order with no shipping line. That path has no review step, which
+  is why refusing was chosen.
+  - 7.5 also stopped the AI supplying a district, so **this refusal fires more often than
+    it would have before** — it is exactly the case that used to be filled in by a guess.
+  - **If it is disruptive in daily use**, the alternatives, in order of preference: add
+    the missing upazila aliases the refusals reveal (cheapest, permanent, and the refusal
+    message tells you which); or let staff pick a district on that screen before creating,
+    which makes it a review step; or make the app the only create path and retire the tab.
+  - **Do not switch it to applying the Outside Dhaka default.** That contradicts 4.9/7.0 —
+    no district means no shipping — and would attach a shipping line to an order with no
+    district to justify it.
+  - Needs real use to judge. Nobody has used it since the change.
+- **Whether the alias matcher should respect word boundaries for short keys.** This is
+  what blocks adding `মদন`/`madan`, and any other short name.
+  - Today the exact pass is an unbounded substring search over the whole text, and the
+    ASCII fuzzy pass allows 1 edit from 5 characters. So `মদন` (3 codepoints) fires inside
+    `মদনপুর`/`মদনগঞ্জ`, which are in **Narayanganj**, and `madan` collects `madam`,
+    `maidan`, `sadan` and `medan`. Both are tested in `state-matching.test.php`, pinned
+    as resolving to nothing.
+  - A word-boundary rule for keys under some length would let short names in. It is a
+    change to the **matcher**, affecting all 327 aliases, so it needs the parser suite to
+    pass unchanged plus new cases — not a data edit.
+  - Until then, short names stay out and cost a dropdown pick. That is the cheap, correct
+    failure.
+
+## How this project has been worked
+
+Recorded because it is not visible in the code, and because it is the reason this file can
+be trusted.
+
+- **One change at a time, and the change is finished before the next one starts.** Each
+  plugin version in `CHANGELOG.md` is one decision with its reasoning. That is why the
+  changelog entries are long: they carry *why*, including options rejected, so a later
+  reader does not re-litigate a settled question or undo a fix without knowing its cost.
+- **Verified against a real server before moving on.** "It builds" and "the tests pass"
+  are necessary and not sufficient. The *Verified* section holds only what a real request
+  against staging confirmed; everything else sits in *Unverified / open* until it does.
+  Several entries in this file were wrong precisely because that step was skipped — see
+  *Lessons about this document*.
+- **This file is updated in the same commit as the code.** Not afterwards, not in a
+  batch. A commit that changes behaviour and leaves the doc stale is the failure mode this
+  rule exists to prevent, and it has happened: three version numbers in here went stale
+  across two commits before a sweep caught them.
+- **WooCommerce's behaviour is read from its source, not assumed.** Where a decision turns
+  on what WooCommerce does — `sanitize_status()` passing unknown statuses through,
+  `calculate_totals()` capping a negative fee, `add_product()` appending rather than
+  merging, the HPOS search clauses — the source was fetched and read, and the file and
+  class are cited so the next reader can check the same place. WooCommerce is not vendored
+  here, so those are version-specific claims about 11.0.1.
+- **Where WooCommerce already has a behaviour, it is copied rather than redesigned.** This
+  is the governing rule for anything the app does to an order, and ignoring it cost real
+  work once — see the first entry under Product decisions.
+- **A wrong answer is worse than no answer**, consistently, for districts and shipping.
+  An empty district shows as an empty dropdown and gets filled; a wrong one looks
+  finished. Several versions exist only to enforce that.
+- **Tests are written to fail for the right reason.** Where a guard matters, it was
+  confirmed to fail with the fix reverted — the sticky save bar, the alias targets, the AI
+  district guard. An assertion that has never been seen red is not yet a guard.
+
 ## Housekeeping
 
 - Rotate the live site's DB password and all eight wp-config salts — they were exposed.
 - README.md and the CHANGELOG.md intro line still say "AI Order Creator" rather than
-  "Order Ops".
+  "Order Ops". The three wp-admin strings are tracked under Open decisions instead,
+  because they are what staff see.
 - Step 4b verification created test orders on staging; they were trashed afterwards, not
   permanently deleted, so they still sit in staging's trash.
 
