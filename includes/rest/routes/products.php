@@ -721,10 +721,14 @@ function ai_rest_get_products(WP_REST_Request $request) {
 
     // The minimum applies to the whole trimmed term, not to each part of a
     // compound one - "abc 250" is a 7-character search.
-    if (mb_strlen($search) < 3) {
+    if (mb_strlen($search) < AIOC_SEARCH_MIN_LENGTH) {
         return new WP_Error(
             'aioc_search_too_short',
-            __('The search term must be at least 3 characters.', 'ai-order-creator'),
+            sprintf(
+                /* translators: %d: the minimum number of characters. */
+                __('The search term must be at least %d characters.', 'ai-order-creator'),
+                AIOC_SEARCH_MIN_LENGTH
+            ),
             ['status' => 400]
         );
     }

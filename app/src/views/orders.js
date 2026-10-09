@@ -13,8 +13,10 @@
  * the API makes the same distinction, and `trash` never appears in /meta's
  * status list.
  *
- * Search resolves a phone number or a customer name, NOT an order id, which is
- * a recorded decision: staff search by phone.
+ * ONE search box, behaving as wp-admin's order search does: a substring match
+ * across order id, phone, name and address at once. The term is sent exactly as
+ * typed - nothing is normalized here or server-side - which is what lets a
+ * fragment match mid-phone and lets Bengali addresses be searched.
  */
 
 import { fetchOrders, fetchOrder, restoreOrder } from '../api.js'
@@ -28,6 +30,16 @@ const PER_PAGE = 20
 
 /** Matches the ~250-300ms the product picker will use in step 6. */
 const SEARCH_DEBOUNCE_MS = 300
+
+/**
+ * Mirrors AIOC_SEARCH_MIN_LENGTH, which /orders enforces with a 400.
+ *
+ * Enforced here as well so nobody is shown an error for a half-typed term: the
+ * server's 400 is the backstop, this is the rule staff actually meet. The
+ * reason for a minimum at all is that the query is a leading-wildcard LIKE, and
+ * "01" sits inside nearly every BD phone number.
+ */
+const SEARCH_MIN_LENGTH = 3
 
 /**
  * "1 item", "3 items", "2.5 items".
@@ -356,11 +368,37 @@ export function OrdersView({
     }
   }
 
-  const runSearch = debounce(() => {
-    state.search = searchInput.value.trim()
+  /**
+   * Adopt whatever is in the search box.
+   *
+   * A term of 1 or 2 characters is NOT sent. The endpoint answers 400 below the
+   * minimum, so a request could only fail - and leaving the previous results on
+   * screen while someone types would be worse than failing, because a stale
+   * list looks exactly like an answer.
+   *
+   * state.search stays empty in that case, so nothing else that calls load() -
+   * the status filter, the pager - can fire a request the server will reject.
+   */
+  function applySearch() {
+    const term = searchInput.value.trim()
     state.page = 1
+
+    if (term.length > 0 && term.length < SEARCH_MIN_LENGTH) {
+      // Abort the in-flight request too: its answer is for an older term.
+      pending?.abort()
+      state.search = ''
+      state.orders = []
+      clear(listNode)
+      pager.hidden = true
+      setMessage(`Type at least ${SEARCH_MIN_LENGTH} characters to search.`)
+      return
+    }
+
+    state.search = term
     load()
-  }, SEARCH_DEBOUNCE_MS)
+  }
+
+  const runSearch = debounce(applySearch, SEARCH_DEBOUNCE_MS)
 
   searchInput.addEventListener('input', runSearch)
 
@@ -370,9 +408,7 @@ export function OrdersView({
     if (event.key !== 'Enter') return
     event.preventDefault()
     runSearch.cancel()
-    state.search = searchInput.value.trim()
-    state.page = 1
-    load()
+    applySearch()
   })
 
   statusSelect.addEventListener('change', () => {

@@ -237,32 +237,82 @@ function ai_rest_resolve_status_arg($status) {
 /**
  * Apply the 'search' param to a wc_get_orders() argument array.
  *
- * A term that normalizes to a valid BD mobile becomes an exact billing_phone
- * lookup; anything else is treated as a customer name search.
+ * ONE SEARCH, matching what wp-admin's order search already does, because
+ * staff use both boxes and a difference between them is worse than any
+ * individual behaviour either could have. The term is passed through
+ * UNTOUCHED, with 'search_filter' => 'all'.
  *
- * The name-search branch uses the HPOS order-table query args ('s' with
- * 'search_filter' => 'customers'). Confirmed on staging (WooCommerce 11.0.1,
- * HPOS): it does partial, mid-name matching. Kept isolated in this function so
- * it can be swapped without touching the handlers. See docs/PROJECT-STATE.md.
+ * What 'all' buys, read from WooCommerce 11.0.1
+ * (Internal/DataStores/Orders/OrdersTableSearchQuery.php) rather than assumed:
+ *
+ *   - 'all' (and an absent filter) expands to every core filter - order_id,
+ *     transaction_id, customer_email, customers, products - OR'd together.
+ *     It is also what the wp-admin dropdown defaults to.
+ *   - ORDER ID: generate_where() adds `id = N` whenever the term is exactly
+ *     (string) absint($term), independently of the filter. Exact, not partial,
+ *     so "8735" finds order 8735 but "873" does not, and neither does "08735".
+ *   - PHONE, NAME, ADDRESS: the 'customers' filter matches
+ *     meta_value LIKE '%term%' against _billing_address_index /
+ *     _shipping_address_index. Those are written by
+ *     OrdersTableDataStore::update_address_index_meta() as
+ *     implode(' ', $order->get_address($type)), and a billing address array
+ *     INCLUDES phone and email. So a phone is matched because it sits inside
+ *     that concatenated string - which is why a fragment matches MID-NUMBER,
+ *     and why no phone column and no raw SQL are needed.
+ *   - Bengali text keeps working for the same reason: a LIKE on utf8mb4 is a
+ *     substring test, with nothing tokenizing or normalizing the term. It is a
+ *     CONTIGUOUS substring though, so "yasmin farida" will not find
+ *     "farida yasmin".
+ *
+ * Verified against live at 7.2: "8735" returns exactly order #8735, and "5089"
+ * returns the same 7 orders as wp-admin in the same order (12312, 9798, 8735,
+ * 8421, 8350, 8313, 7405), each with 5089 inside an 11-digit phone.
+ *
+ * The term is deliberately NOT normalized. Stored phone numbers on this store
+ * are always plain 11-digit ASCII - customer data is never entered with +880,
+ * and the parser converts Bangla digits before saving - so a staff member types
+ * the digits they can see. ai_normalize_bd_phone() used to run here and made a
+ * valid-looking mobile an exact billing_phone lookup, which was narrower than
+ * wp-admin in two ways: it could not match a fragment, and it never looked at
+ * the SHIPPING phone. It is still the right tool for
+ * GET /customers/last-order, which asks for one exact number.
+ *
+ * HAZARD, recorded because nothing in this repo would reveal it: if HPOS
+ * full-text search is ever switched on (woocommerce_hpos_fts_index_enabled and
+ * woocommerce_hpos_address_fts_index_created both 'yes'), the customers clause
+ * becomes MATCH ... AGAINST ... IN BOOLEAN MODE, which does not match mid-word.
+ * Mid-phone search would then break here AND in wp-admin, silently.
  *
  * @param array  $args
  * @param string $search
- * @return array
+ * @return array|WP_Error
  */
 function ai_rest_apply_search_arg(array $args, $search) {
     $search = trim((string) $search);
+
+    // No search is not a short search: the unfiltered list is the normal view.
     if ($search === '') {
         return $args;
     }
 
-    $phone = ai_normalize_bd_phone($search);
-    if ($phone !== '') {
-        $args['billing_phone'] = $phone;
-        return $args;
+    // Below the minimum the leading wildcard matches almost everything - "01"
+    // is inside nearly every BD phone number - so this is a 400 rather than a
+    // slow scan returning the whole table. The app enforces the same minimum
+    // before it asks, so this is the backstop, not the user-facing rule.
+    if (mb_strlen($search) < AIOC_SEARCH_MIN_LENGTH) {
+        return new WP_Error(
+            'aioc_search_too_short',
+            sprintf(
+                /* translators: %d: the minimum number of characters. */
+                __('The search term must be at least %d characters.', 'ai-order-creator'),
+                AIOC_SEARCH_MIN_LENGTH
+            ),
+            ['status' => 400]
+        );
     }
 
     $args['s']             = $search;
-    $args['search_filter'] = 'customers';
+    $args['search_filter'] = 'all';
 
     return $args;
 }
@@ -274,6 +324,8 @@ function ai_rest_apply_search_arg(array $args, $search) {
  * @return WP_REST_Response|WP_Error
  */
 function ai_rest_get_orders(WP_REST_Request $request) {
+    $started = microtime(true);
+
     $page     = max(1, (int) $request->get_param('page'));
     $per_page = min(50, max(1, (int) $request->get_param('per_page')));
 
@@ -292,6 +344,9 @@ function ai_rest_get_orders(WP_REST_Request $request) {
     ];
 
     $args = ai_rest_apply_search_arg($args, $request->get_param('search'));
+    if (is_wp_error($args)) {
+        return $args;
+    }
 
     $results = wc_get_orders($args);
 
@@ -307,6 +362,12 @@ function ai_rest_get_orders(WP_REST_Request $request) {
         'total'       => (int) $results->total,
         'total_pages' => (int) $results->max_num_pages,
         'page'        => $page,
+        // Wall-clock milliseconds inside the handler, as /products reports.
+        // Here to answer one question: what does search_filter => 'all' cost?
+        // It adds an unindexed order_item_name LIKE '%term%' over the order
+        // items table, so the figure to watch is a broad text term against a
+        // large order count - not an id lookup, which never reaches that scan.
+        'timing_ms'   => (int) round((microtime(true) - $started) * 1000),
     ], 200);
 }
 

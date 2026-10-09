@@ -2,6 +2,37 @@
 
 All notable changes to AI Order Creator are documented in this file.
 
+## 7.3
+
+- **`GET /orders?search=` now behaves like WooCommerce's own order search.** One box, one substring match across order id, phone, name and address at once — rather than a sequence of typed guesses. The term is passed through **untouched**, with `search_filter => 'all'`.
+  - Read out of the WooCommerce 11.0.1 source (`OrdersTableSearchQuery.php`) rather than assumed:
+    - **`'all'` expands to every core filter** — `order_id`, `transaction_id`, `customer_email`, `customers`, `products` — OR'd together. An absent filter does the same, and `all` is what the wp-admin dropdown defaults to.
+    - **Order id:** `generate_where()` adds `` `id` = N `` whenever the term is exactly `(string) absint($term)`, *independently of the filter*. Exact, not partial — `8735` finds order 8735, `873` does not, and neither does `08735`.
+    - **Phone, name, address:** the `customers` filter matches `meta_value LIKE '%term%'` against `_billing_address_index` / `_shipping_address_index`. `OrdersTableDataStore::update_address_index_meta()` writes those as `implode(' ', $order->get_address($type))`, and a **billing address array includes `phone` and `email`**.
+  - That last detail is the whole mechanism: **a phone is matched because it sits inside a concatenated string.** It is why a fragment matches *mid-number*, and why neither a phone column nor raw SQL is needed.
+  - **Bengali keeps working for the same reason.** A `LIKE` on utf8mb4 is a substring test with nothing tokenizing or normalizing the term. It is a *contiguous* substring, though — `"yasmin farida"` will not find `"farida yasmin"`.
+- **Removed the `ai_normalize_bd_phone()` branch**, which turned a valid-looking mobile into an exact `billing_phone` lookup.
+  - It was narrower than wp-admin in two ways: it could not match a fragment, and it **never looked at the shipping phone**.
+  - Normalizing is also wrong in principle for a substring search. Stored numbers on this store are always plain 11-digit ASCII — customer data is never entered with `+880`, and the parser converts Bangla digits before saving — so a staff member types the digits they can see.
+  - `ai_normalize_bd_phone()` is **unchanged and still used** by `GET /customers/last-order`, `ajax.php` and the shared lookup, which all ask for one exact number.
+- **Added a 3-character minimum**, as a 400 `aioc_search_too_short` matching `/products`. The query is a leading-wildcard `LIKE`, and `01` is inside nearly every BD phone number.
+  - Measured with `mb_strlen()`, so **two Bengali characters are refused** where `strlen()` would have counted six bytes and let them through.
+  - **An empty term is not a short term** — the unfiltered list is the normal view of this screen.
+  - The minimum is now `AIOC_SEARCH_MIN_LENGTH`, used by both routes instead of a literal `3` in each.
+- **Added `timing_ms` to the `/orders` envelope**, wall-clock milliseconds inside the handler, as `/products` already reports. `all` adds an unindexed `order_item_name LIKE '%term%'` over the order items table, and that cost deserves a number rather than an estimate.
+- **New `tests/rest/order-search.test.php`** — runs the real `ai_rest_apply_search_arg()` under PHP across 41 assertions: that the term reaches the args byte for byte in both scripts, that `billing_phone` is never set, and the minimum's boundaries. Discovered automatically by `app/test/run-all.mjs`.
+- **Verified against live *before* this change that both reported gaps were already absent:** `search=8735` returned exactly order #8735 by id, and `search=5089` returned the same 7 orders as wp-admin in the same order (12312, 9798, 8735, 8421, 8350, 8313, 7405), each with 5089 inside an 11-digit phone. **So the only behavioural change here is the removal of the normalization branch.**
+- **Hazard, recorded at the function and in the doc because nothing in this repo would reveal it.** If HPOS full-text search is ever enabled — `woocommerce_hpos_fts_index_enabled` and `woocommerce_hpos_address_fts_index_created` both `yes` — the `customers` clause becomes `MATCH … AGAINST … IN BOOLEAN MODE`, which does not match mid-word. Mid-phone search would then break **silently, in both this API and wp-admin**. It is a WooCommerce performance setting someone could reasonably enable without connecting it to search behaviour. The mid-number matches above prove it is off on live today.
+- **`item_count` as a numeric string is intended and stays.** Reviewed after it was queried: `get_item_count()` sums quantities as floats, so an int cast would truncate `1.5` to `1` and dropping the string would send `3.3000000000000003`. It is the same argument money makes, it has been the documented shape since 7.1, and the app already reads it with `Number()` — covered by `decimal-quantity.test.mjs` for `"2.5"` and `"0.5"`. No change.
+
+### App 0.12.0
+
+- **The search box enforces the 3-character minimum before asking**, so a half-typed term never produces an error. The server's 400 is the backstop; this is the rule staff actually meet.
+  - A 1-2 character term clears the list and says *"Type at least 3 characters to search."* rather than leaving the previous results on screen, where a stale list would look exactly like an answer.
+  - The rejected term is **not** stored, so the status filter and the pager cannot resend it and collect the 400 the typing path just avoided.
+  - Enter still searches immediately, including past a queued debounce, and still sends nothing when the term is too short.
+- **New `app/test/order-search.test.mjs`** — asserts the search through the **request URL**, since that is the whole contract: ten term shapes sent byte for byte (ids, phone fragments, full mobiles, Bengali with and without ASCII digits, hyphens, mixed case), that a valid mobile is no longer intercepted, and every branch of the minimum.
+
 ## 7.2
 
 - **Fixed: places written without their district resolved to the wrong district.** Shipping is a pure function of the district, so each was a wrong charge on a real order.

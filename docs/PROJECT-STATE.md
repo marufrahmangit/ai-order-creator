@@ -2,11 +2,14 @@
 
 Working brief for resuming this project cold. Present state only — git log is the history.
 
-Plugin header: **Order Ops v7.2**, Updated 2026-10-08. App **0.11.0**, named **CartMix Shop
+Plugin header: **Order Ops v7.3**, Updated 2026-10-09. App **0.12.0**, named **CartMix Shop
 Manager** to staff — see "Names" under Product decisions; the plugin is still "Order Ops".
-**Both sites run 7.1; the repo is at 7.2, which neither site has.** 7.2 is a parser fix:
-places written without their district (Kishore, Sreepur, Kaliganj) now resolve to NO
-district instead of a wrong one, which used to mean a wrong shipping rate. On staging,
+**Both sites run 7.1; the repo is at 7.3, and neither site has 7.2 or 7.3.** One upload
+covers both. 7.2 is a parser fix: places written without their district (Kishore,
+Sreepur, Kaliganj) now resolve to NO district instead of a wrong one, which used to mean
+a wrong shipping rate. 7.3 makes the order-list search behave like wp-admin's — one
+substring match over id, phone, name and address, with the term no longer normalized —
+and adds `timing_ms` to the `/orders` envelope. On staging,
 7.1's decimal quantities are verified, through the API and in a browser. On live, only
 `POST /parse` has been verified (see Verified); nothing else in 6.7-7.1 has been
 exercised there yet.
@@ -52,12 +55,12 @@ say what exists, what is proven, and what is merely written down.**
 passes its checks locally; steps 1-12 are verified on staging, 13-17 are not yet. Two of
 those checks are in the repo and one is not:
 
-- **`npm test` in `app/`** — fourteen JS suites, 421 assertions, plus the PHP parser suite
-  (53 assertions) when it can find a PHP. In the repo. Run this first. Without a PHP it
+- **`npm test` in `app/`** — fifteen JS suites, 458 assertions, plus two PHP suites
+  (94 assertions: the parser's 53 and the order-search args' 41) when it can find a PHP. In the repo. Run this first. Without a PHP it
   prints SKIPPED for the PHP suite, by name, in the summary; set `PHP_BIN` to the
   portable PHP described under Conventions to run it, and `REQUIRE_PHP=1` to make a skip
   fail.
-- **`php -l` over all 27 PHP files** — needs the portable PHP described under
+- **`php -l` over all 29 PHP files** — needs the portable PHP described under
   Conventions, which is not in the repo either but takes one download to set up.
 - **A contract check** that greps the real PHP and JS source and asserts every field
   name and behavioural rule they must agree on — 196 assertions at 7.0, not rebuilt for
@@ -338,8 +341,13 @@ parser becomes one feature inside it, not the whole tool.
     text first, and only falls back to fuzzy matching when no alias appears anywhere. An
     input that names the district in full ("Sreepur, Gazipur") is decided by the exact
     pass, and says nothing about the fuzzy one.
-  - **`tests/parser/state-matching.test.php` is the committed parser test**, run by
-    `npm test` when a PHP is available (above). It stubs only the WordPress and
+  - **`tests/**/*.test.php` are the committed PHP suites**, discovered by filename and
+    run by `npm test` when a PHP is available (above) — currently
+    `tests/parser/state-matching.test.php` and `tests/rest/order-search.test.php`. They
+    stub only the WordPress and WooCommerce functions the code under test touches, so
+    anything needing real WooCommerce or a database stays out of reach and belongs in a
+    request against staging instead.
+  - **`tests/parser/state-matching.test.php` is the parser one.** It stubs only the WordPress and
     WooCommerce functions the parser touches, with WooCommerce's 64-row BD list as a
     fixture in `tests/parser/fixtures/` - extracted as DATA from `i18n/states.php`, never
     executed, so the `ABSPATH` trap above does not apply. It pins both directions of the
@@ -1197,6 +1205,53 @@ parser becomes one feature inside it, not the whole tool.
   gets nothing retypes, whereas one who gets a silently broadened list has to notice
   that the rows do not answer the question. The 3-character minimum is on the whole
   trimmed term, not each part.
+- **The order list's search is ONE substring match across order id, phone, name and
+  address, and it matches wp-admin's because staff use both boxes.** A box that behaves
+  differently from the one they already know is worse than any individual behaviour
+  either could have. `GET /orders?search=` sends the term UNTOUCHED as HPOS's `'s'` with
+  `search_filter => 'all'`.
+  - **How it works, read from `OrdersTableSearchQuery.php` (WooCommerce 11.0.1) rather
+    than assumed.** `'all'` — and an absent filter — expands to every core filter
+    (`order_id`, `transaction_id`, `customer_email`, `customers`, `products`) OR'd
+    together, and is what the wp-admin dropdown defaults to.
+  - **Order ids are matched EXACTLY, by a clause that is added regardless of the
+    filter.** `generate_where()` appends `` `id` = N `` whenever the term is exactly
+    `(string) absint($term)`. So `8735` finds order 8735, but `873` does not, and
+    neither does `08735` — the string comparison fails on the leading zero.
+  - **A phone is matched because it sits inside a concatenated string, not because any
+    phone column is searched.** The `customers` filter does
+    `meta_value LIKE '%term%'` against `_billing_address_index` /
+    `_shipping_address_index`, which `OrdersTableDataStore::update_address_index_meta()`
+    writes as `implode(' ', $order->get_address($type))` — and a billing address array
+    includes `phone` and `email`. That is the whole mechanism, and it is why a fragment
+    matches **mid-number** and why **no raw SQL is needed** for it.
+  - **Bengali is searchable for the same reason**: a `LIKE` on utf8mb4 is a substring
+    test with nothing tokenizing or normalizing the term. It is a **contiguous**
+    substring though, so `"yasmin farida"` will not find `"farida yasmin"`.
+  - **The term is deliberately NOT normalized.** Stored numbers on this store are always
+    plain 11-digit ASCII — customer data is never entered with `+880`, and the parser
+    converts Bangla digits before saving — so staff type the digits they can see. Until
+    7.3 `ai_normalize_bd_phone()` ran here and made a valid-looking mobile an exact
+    `billing_phone` lookup, which was narrower than wp-admin twice over: it could not
+    match a fragment, and **it never looked at the shipping phone**.
+    `ai_normalize_bd_phone()` is still right for `GET /customers/last-order`, which asks
+    for one exact number. Only the list search dropped it.
+  - **3-character minimum**, a 400 `aioc_search_too_short` shared with `/products` via
+    `AIOC_SEARCH_MIN_LENGTH`. The query is a leading-wildcard `LIKE` and `01` is inside
+    nearly every BD phone number. Measured with `mb_strlen()`: two Bengali characters
+    are six bytes, so `strlen()` would have let them through. **An empty term is not a
+    short term** — the unfiltered list is this screen's normal view. The app enforces the
+    same minimum before asking, so the 400 is the backstop rather than the rule staff
+    meet.
+  - **HAZARD: enabling HPOS full-text search breaks mid-phone search, silently, in both
+    this API and wp-admin.** With `woocommerce_hpos_fts_index_enabled` and
+    `woocommerce_hpos_address_fts_index_created` both `yes`, the `customers` clause
+    becomes `MATCH(first_name, …, email, phone) AGAINST (… IN BOOLEAN MODE)`. Boolean-mode
+    full-text does not match mid-word, so a phone fragment would stop matching. It is a
+    WooCommerce **performance** setting, which is exactly how it would get switched on by
+    someone not connecting it to search behaviour. The mid-number matches verified on
+    live prove it is off there today. Nothing in this repo can detect it — the symptom
+    would be "search stopped finding phone fragments" with no code change to blame.
 - **`fields=picker` trims the row to `id`, `name`, `sku`, `price`, `is_in_stock`.** The
   picker reads nothing else, and this store's thumbnails are all null. It also skips the
   per-row attachment lookup, so it is cheaper server-side and not only on the wire. Any
@@ -1315,7 +1370,11 @@ POST endpoint, registered from two different files — `register_rest_route()` m
 because it defaults to `$override = false`:
 
 - `GET  /aioc/v1/ping` — `includes/rest/rest.php`
-- `GET  /aioc/v1/orders` — `includes/rest/routes/orders.php`
+- `GET  /aioc/v1/orders?page=&per_page=&search=&status=` —
+  `includes/rest/routes/orders.php`. `search` is one substring match over order id,
+  phone, name and address, sent untouched, with a 3-character minimum (400
+  `aioc_search_too_short`); an empty term is the unfiltered list. The envelope carries
+  `orders`, `total`, `total_pages`, `page` and `timing_ms` from 7.3.
 - `GET  /aioc/v1/orders/{id}` — `includes/rest/routes/orders.php`. Line-item `quantity`
   (and the list's `item_count`) are trimmed numeric strings from 7.1. Carries `line_items`,
   `shipping_lines` and `fee_lines`; the same builder serves both write routes.
@@ -1356,8 +1415,9 @@ and state labels match the admin screen, status prefixes and `per_page` clamping
 trashed orders are excluded, private products are returned, envelopes are right. The
 mechanisms that were in doubt and are now settled on WooCommerce 11.0.1 / HPOS:
 
-- Order search — phone folding (`8801…`/`01…` → same order), and `'s'` +
-  `search_filter => 'customers'` does partial mid-name matching.
+- Order search — `'s'` plus a search filter does partial, mid-string matching. At 7.3
+  the filter became `'all'` and the term is no longer normalized; see the search entry
+  under Product decisions for the mechanism and the live verification.
 - Product search — the `sku` arg is LIKE/partial and does NOT split on commas;
   `wc_get_products(['price' => …])` genuinely narrows the query, with price-first
   ordering, Block B fallback and dedup all correct.
@@ -1773,12 +1833,6 @@ shipping fix — **confirmed on staging and in a browser**. `/ping` reports `7.0
   product does not disturb the fees in the same round trip. The two lists are
   independently scoped in the code and the contract check asserts the payload semantics,
   so this is a verification gap rather than a suspected defect.
-- **`GET /orders?search=` does not resolve order ids.** It handles phone and customer
-  name only. A numeric term that is not a valid BD mobile falls through to the name
-  search, so typing an order number returns unrelated name matches rather than that
-  order. **Decided: id resolution is not needed** — staff search by phone, which works
-  today. Kept here rather than deleted, because the fall-through is still a latent
-  surprise if anyone does type an order number into the list search.
 - **Thumbnails would reintroduce a per-row lookup.** `ai_rest_product_thumbnail()` calls
   `wp_get_attachment_image_url()`, which loads an ATTACHMENT post that priming the
   product ids does not cover. Harmless today — every thumbnail in this store is null, so
@@ -1859,6 +1913,24 @@ shipping fix — **confirmed on staging and in a browser**. `/ping` reports `7.0
   "Order Ops".
 - Step 4b verification created test orders on staging; they were trashed afterwards, not
   permanently deleted, so they still sit in staging's trash.
+
+## Lessons about this document
+
+- **"Decided: not needed" is not a substitute for a request, and one of these entries was
+  wrong for weeks because of it.** An open item asserted flatly that
+  `GET /orders?search=` could not resolve order ids and that a numeric term fell through
+  to an unrelated name search. It was written from a STATIC READING of our own code —
+  nobody called the endpoint — and reading WooCommerce's source later showed the id
+  clause is added unconditionally, so ids had been searchable the whole time. Two
+  requests against live disproved the entry outright: `search=8735` returned exactly
+  order #8735, and `search=5089` returned the same 7 orders as wp-admin.
+  - The Update rule below already said to move things to Verified only after a real
+    request. The failure was stating an unverified NEGATIVE as fact in the first place,
+    which the rule does not explicitly forbid — so: **an entry claiming something does
+    not work needs the same evidence as one claiming it does.** "I read the code and
+    expect X" belongs in Unverified, phrased as an expectation.
+  - It also cost nothing to check and would have saved a wrong decision: the entry
+    concluded "id resolution is not needed", which closed a question that was never open.
 
 ## Update rule
 
