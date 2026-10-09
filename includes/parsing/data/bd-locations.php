@@ -331,6 +331,12 @@ return [
         'খিলক্ষেত' => 'Dhaka',
         'সাভার' => 'Dhaka',
         'কেরানীগঞ্জ' => 'Dhaka',
+        // 7.6: the Bangla form of 'dhamrai', which has been here in ASCII since
+        // the area block was written. Bangla gets no fuzzy pass, so an address
+        // written in Bangla needed its own key. 6 codepoints and distinctive -
+        // the only Bangla words containing it are Dhamrai's own place names,
+        // which are all in Dhaka district anyway.
+        'ধামরাই' => 'Dhaka',
         'তেজগাঁও' => 'Dhaka',
         'ফার্মগেট' => 'Dhaka',
         'কারওয়ান বাজার' => 'Dhaka',

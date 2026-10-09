@@ -336,6 +336,46 @@ check('and refuses when there is none',
       && strpos($creator, 'No order created.') !== false,
       true);
 
+// ---- 7.6: Dhamrai in Bangla, and why Madan is still not here ----------------
+//
+// 'dhamrai' had been in the ASCII block since it was written, but Bangla gets
+// no fuzzy pass, so an address written in Bangla had no way to reach it. 7.5
+// made that cost real: with the AI no longer allowed to supply a district, a
+// missing Bangla alias means an empty dropdown or a refusal in wp-admin.
+foreach ([
+    'ধামরাই'              => 'Dhaka',
+    'ধামরাই বাজার'        => 'Dhaka',
+    'ধামরাইপুর'           => 'Dhaka',
+    'dhamrai'             => 'Dhaka',
+] as $text => $district) {
+    check("\"$text\" resolves to $district", ai_extract_state_from_text($text), $district);
+}
+
+/*
+ * MADAN IS DELIBERATELY NOT AN ALIAS, in either script, and this pins that.
+ *
+ * Madan upazila is only in Netrakona, so the district assignment is not the
+ * ambiguous part - the STRING is:
+ *
+ *   - 'মদন' is 3 codepoints, shorter than any other Bangla alias in the file
+ *     (the next shortest is 4), and the exact pass is an unbounded substring
+ *     search. It fires inside মদনপুর and মদনগঞ্জ, which are in NARAYANGANJ, and
+ *     inside মদন used as a given name.
+ *   - 'madan' is 5 characters, which puts it in the ASCII fuzzy pass at 1 edit,
+ *     where it collects madam, maidan, sadan, medan and madar. "Madam" appears
+ *     in these messages for real.
+ *
+ * Both are the failure 7.2 removed: a short distinctive name whose neighbourhood
+ * contains real words. A wrong district is worse than none, so Madan costs a
+ * dropdown pick instead. Adding it would need the matcher to respect word
+ * boundaries for short aliases, which is a change to the matcher, not the data.
+ */
+foreach (['মদন', 'মদনপুর বাজার', 'madan', 'Madan bazar'] as $text) {
+    check("\"$text\" deliberately resolves to no district", ai_extract_state_from_text($text), '');
+}
+check('and a word one edit from "madan" is not a district either',
+      ai_extract_state_from_text('madam please deliver after 6pm'), '');
+
 $failed = 0;
 foreach ($results as [$name, $pass, $actual, $expected]) {
     if (!$pass) $failed++;

@@ -2,6 +2,18 @@
 
 All notable changes to AI Order Creator are documented in this file.
 
+## 7.6
+
+- **Added the Bangla alias for Dhamrai** — `ধামরাই` → `Dhaka`. `dhamrai` had been in the ASCII area block since it was written, but **Bangla keys are matched exactly and get no fuzzy pass**, so an address written in Bangla could not reach it. 7.5 made that cost real: the AI is no longer allowed to supply a district, so a missing alias now means an empty dropdown in the app or a refusal in wp-admin. 6 codepoints and distinctive — the only Bangla words containing it are Dhamrai's own place names, all in Dhaka district anyway.
+- **Madan was NOT added, in either script**, and this reverses what the 7.5 notes said about it. Madan upazila is only in Netrakona, so the *district assignment* is unambiguous — but the **string** is not:
+  - `মদন` is **3 codepoints**, shorter than every other Bangla alias in the file (next shortest is 4), and the exact pass is an **unbounded substring search**. It fires inside `মদনপুর` and `মদনগঞ্জ`, which are in **Narayanganj** — tested, and with no district named they resolve to Netrakona, a wrong district. It also fires inside `মদন` used as a given name.
+  - `madan` is **5 characters**, which puts it in the ASCII fuzzy pass at an allowance of 1 edit, where it collects `madam`, `maidan`, `sadan`, `medan` and `madar`. **"Madam" appears in these messages for real.**
+  - Both are the exact failure 7.2 removed: a short distinctive name whose one-edit neighbourhood contains ordinary words. A wrong district is worse than none, so **Madan costs a dropdown pick instead**.
+  - Adding it safely would need the matcher to respect **word boundaries for short aliases** — a change to the matcher, not to the data. Recorded as an open decision.
+  - `Sreepur` and `Nawabganj` stay unmapped as already decided.
+- **`tests/parser/state-matching.test.php`: 83 → 92 assertions.** Dhamrai is pinned in both scripts, and **Madan is pinned as resolving to nothing**, so adding it later cannot happen silently.
+- Corrected the plugin header's `Updated` date, which read 2026-10-08 while 7.3, 7.4 and 7.5 were all released on the 9th. Two patch scripts had contained a no-op replacement on that line.
+
 ## 7.5
 
 - **The district now comes from the customer's text, or from nowhere. The AI fallback can no longer supply one.**
