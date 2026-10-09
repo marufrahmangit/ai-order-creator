@@ -39,6 +39,28 @@ function get_option($k, $d = false) { return $d; }
 function ai_log(...$a) {}
 // shipping.php registers its wp-admin hooks when loaded; nothing here fires them.
 function add_action(...$a) {}
+function wp_json_encode($value, $flags = 0) { return json_encode($value, $flags); }
+
+/*
+ * Stands in for the Groq fallback, and always answers with a district the test
+ * messages never mention. groq-client.php is NOT loaded, so these are the only
+ * definitions - the real ones need network and a key.
+ *
+ * $GLOBALS['aioc_test_groq_calls'] counts invocations, which is how the suite
+ * asserts that a missing district no longer triggers an API call at all.
+ */
+$GLOBALS['aioc_test_groq_calls'] = 0;
+function ai_call_groq($text, array $hints = []) {
+    $GLOBALS['aioc_test_groq_calls']++;
+    return ['text' => json_encode([
+        'name'           => $hints['name'] ?: 'AI Invented Name',
+        'phone'          => $hints['phone'] ?: '01700000000',
+        'address_line_1' => $hints['address_line_1'] ?: 'AI invented address',
+        'state'          => 'Chandpur',
+        'customer_note'  => '',
+    ], JSON_UNESCAPED_UNICODE)];
+}
+function ai_parse_response($raw) { return json_decode($raw, true); }
 
 $GLOBALS['aioc_bd_states'] = json_decode(file_get_contents(__DIR__ . '/fixtures/bd-states.json'), true)['states'];
 
@@ -213,6 +235,106 @@ check('and the whole message needs no AI, so nothing can guess a district',
 বাঁশরী সরকারি প্রাথমিক বিদ্যালয়,বাঁশরী,মদন,নেএকোণা।"
       )),
       false);
+
+// ---- 7.5: the district comes from the TEXT, or from nowhere -------------------
+//
+// The AI fallback used to supply it whenever the matcher found none, and its
+// answer was "validated" by running the matcher over the ANSWER - which only
+// asks "is this a real district?", and Groq returns real districts. A live
+// order ending "নেএকোণা" came back as Chandpur: a genuine district, nobody's
+// district, appended to the address and priced as if typed.
+//
+// ai_call_groq() is stubbed above to always answer Chandpur, so any of these
+// returning Chandpur means the guard is gone.
+function parsed_state($text) {
+    $result = ai_get_parsed_order_data($text);
+    return $result['data']['state'] ?? '';
+}
+
+foreach ([
+    'an unmapped upazila'   => "Rahim
+01711111111
+বাঁশরী স্কুল, মদন",
+    'a deliberately ambiguous name' => "Rahim
+01711111111
+বাজার রোড, শ্রীপুর",
+    'no district at all'    => "Rahim
+01711111111
+House 4, Road 2",
+    'an English upazila'    => "Rahim
+01711111111
+Madan bazar road",
+] as $what => $text) {
+    check("$what gets NO district rather than the AI's guess", parsed_state($text), '');
+}
+
+/*
+ * Groq is still called when it can genuinely help - a message with no address -
+ * and its district has to be discarded then too.
+ *
+ * These are two separate assertions on purpose. The 7.5 change has two halves
+ * that each independently stop the reported bug, so a single combined check
+ * would pass with one of them reverted and name the wrong cause:
+ *
+ *   - state is no longer a reason to CALL the AI, so a complete message naming
+ *     no district never asks it. That alone covers the live order.
+ *   - the AI's state is discarded even when it IS called. That is the half that
+ *     only this case can reach.
+ */
+$GLOBALS['aioc_test_groq_calls'] = 0;
+$bare_phone_state = parsed_state('01711111111');
+check('a bare phone still reaches the AI, which is the point of the fallback',
+      $GLOBALS['aioc_test_groq_calls'] > 0, true);
+check("and the AI's district is discarded even when it IS called",
+      $bare_phone_state, '');
+
+// And the saving: a complete message naming no district must not call the API
+// merely to have its answer thrown away.
+$GLOBALS['aioc_test_groq_calls'] = 0;
+parsed_state("Rahim
+01711111111
+বাঁশরী স্কুল, মদন");
+check('a missing district alone does not call the AI', $GLOBALS['aioc_test_groq_calls'], 0);
+check('and state is not one of the conditions for calling it',
+      ai_should_call_ai(['name' => 'A', 'phone' => '01711111111', 'address_line_1' => 'X', 'state' => '']),
+      false);
+check('while a missing address still is',
+      ai_should_call_ai(['name' => 'A', 'phone' => '01711111111', 'address_line_1' => '', 'state' => 'Dhaka']),
+      true);
+
+// A district the text DOES name is unaffected - that is the whole point.
+foreach ([
+    "Mahadi
+01711111111
+বাঁশরী বিদ্যালয়,বাঁশরী,মদন,নেএকোণা।" => 'Netrakona',
+    "Rahim
+01711111111
+মদন, নেত্রকোণা"                        => 'Netrakona',
+    "Rahim
+01711111111
+মিরপুর, ঢাকা"                          => 'Dhaka',
+    "Rahim
+01711111111
+টঙ্গী বাজার"                            => 'Gazipur',
+    "Rahim
+01711111111
+House 4
+District: Gazipur"            => 'Gazipur',
+] as $text => $district) {
+    check("a district in the message still resolves ($district)", parsed_state($text), $district);
+}
+
+// The admin create tab writes the order with no review step, so it must refuse
+// rather than create one with no district and therefore no shipping. Asserted
+// structurally - it produces HTML and needs WordPress to run.
+$creator = file_get_contents(AIOC_PATH . 'admin/views/creator-result.php');
+check('the admin create path resolves the district BEFORE writing',
+      strpos($creator, '$state_code = ai_match_state_code') < strpos($creator, '$result = ai_create_order_from_data'),
+      true);
+check('and refuses when there is none',
+      strpos($creator, "if (\$state_code === '') {") !== false
+      && strpos($creator, 'No order created.') !== false,
+      true);
 
 $failed = 0;
 foreach ($results as [$name, $pass, $actual, $expected]) {

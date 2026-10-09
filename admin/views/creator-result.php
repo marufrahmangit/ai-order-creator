@@ -64,8 +64,35 @@ function ai_process_order_text($text) {
     ai_render_parse_preview($parsed);
     $data = $parsed['data'];
 
-    $result = ai_create_order_from_data($data);
     $state_code = ai_match_state_code($data['state'] ?? '');
+
+    /*
+     * This tab creates the order the moment the button is pressed - there is no
+     * review step between the preview above and the write, unlike the app's
+     * parse-review-save. So an unresolved district cannot be left to a human to
+     * notice later: ai_apply_shipping() adds NO line without one, and the order
+     * would be created short by 80-150 BDT with nothing looking wrong.
+     *
+     * Refusing is the safe half of that trade. Applying the Outside Dhaka rate
+     * instead would contradict 4.9/7.0, which settled that no district means no
+     * shipping, whether the order never had one or lost it - and it would put a
+     * shipping line on an order with no district to justify it.
+     *
+     * The district is now only ever taken from the customer's text (see
+     * parser.php), so this fires more often than it would have before 7.5. That
+     * is the point: it is the case that used to be filled in by a guess.
+     */
+    if ($state_code === '') {
+        echo '<div class="notice notice-error"><p><strong>No order created.</strong> '
+            . 'No district could be resolved from this message, and an order with no '
+            . 'district gets no shipping charge at all. Add the district to the text '
+            . '(or create the order in the app, where the district is a dropdown) and '
+            . 'try again.</p></div>';
+        ai_log('Order creation refused: no district resolved', $data['state'] ?? '');
+        return;
+    }
+
+    $result = ai_create_order_from_data($data);
 
     ai_render_order_result($result, $data, $state_code, microtime(true) - $started_at, $debug_mode);
 

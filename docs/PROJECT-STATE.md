@@ -2,17 +2,18 @@
 
 Working brief for resuming this project cold. Present state only — git log is the history.
 
-Plugin header: **Order Ops v7.4**, Updated 2026-10-09. App **0.12.0**, named **CartMix Shop
+Plugin header: **Order Ops v7.5**, Updated 2026-10-09. App **0.12.0**, named **CartMix Shop
 Manager** to staff — see "Names" under Product decisions; the plugin is still "Order Ops".
-**Both sites run 7.1; the repo is at 7.4, and neither site has 7.2, 7.3 or 7.4.** One
-upload covers all three. **7.4 includes a money fix**: four districts saved orders with
-no shipping line at all, so uploading it matters more than the rest. 7.2 is a parser fix: places written without their district (Kishore,
+**Both sites run 7.1; the repo is at 7.5, and neither site has 7.2 through 7.5.** One
+upload covers all four. **7.4 includes a money fix**: four districts saved orders with no
+shipping line at all, so uploading it matters more than the rest. 7.2 is a parser fix: places written without their district (Kishore,
 Sreepur, Kaliganj) now resolve to NO district instead of a wrong one, which used to mean
 a wrong shipping rate. 7.3 makes the order-list search behave like wp-admin's — one
 substring match over id, phone, name and address, with the term no longer normalized —
 and adds `timing_ms` to the `/orders` envelope. 7.4 fixes four districts whose alias
 value was not a WooCommerce label, which meant no state code, which meant **no shipping
-charged**. On staging,
+charged**. 7.5 stops the AI fallback supplying a district the customer never typed, and
+makes the wp-admin create button refuse rather than write an order with no district. On staging,
 7.1's decimal quantities are verified, through the API and in a browser. On live, only
 `POST /parse` has been verified (see Verified); nothing else in 6.7-7.1 has been
 exercised there yet.
@@ -59,7 +60,7 @@ passes its checks locally; steps 1-12 are verified on staging, 13-17 are not yet
 those checks are in the repo and one is not:
 
 - **`npm test` in `app/`** — fifteen JS suites, 458 assertions, plus two PHP suites
-  (108 assertions: the parser's 67 and the order-search args' 41) when it can find a PHP. In the repo. Run this first. Without a PHP it
+  (124 assertions: the parser's 83 and the order-search args' 41) when it can find a PHP. In the repo. Run this first. Without a PHP it
   prints SKIPPED for the PHP suite, by name, in the summary; set `PHP_BIN` to the
   portable PHP described under Conventions to run it, and `REQUIRE_PHP=1` to make a skip
   fail.
@@ -344,6 +345,35 @@ parser becomes one feature inside it, not the whole tool.
     text first, and only falls back to fuzzy matching when no alias appears anywhere. An
     input that names the district in full ("Sreepur, Gazipur") is decided by the exact
     pass, and says nothing about the fuzzy one.
+  - **THE DISTRICT COMES FROM THE CUSTOMER'S TEXT, OR FROM NOWHERE. The AI never
+    supplies one.** `ai_get_parsed_order_data()` takes `state` from
+    `ai_extract_state_hint_from_text($normalized_text)` and nothing else.
+    - Until 7.5 Groq's answer was merged in whenever the deterministic pass found no
+      district, and then "validated" by running the matcher over **Groq's answer**. That
+      only asks whether the string is a real district name, and Groq returns real
+      district names. A live order ending `নেএকোণা` came back as **Chandpur** — a genuine
+      district, nobody's district — and `ai_ensure_state_in_address()` appended it to the
+      address, so the order carried a district nobody had typed.
+    - **The right question is whether the district is IN THE MESSAGE**, and the text hint
+      already answers it. When the deterministic pass found nothing that hint is empty by
+      construction — same matcher, same text — so Groq's state is discarded every time
+      rather than sometimes. Deliberate, not an oversight.
+    - `state` is also **not** a reason to call the AI any more. Asking it only to discard
+      the answer cost a round trip on every otherwise-complete message naming no
+      district. The prompt was tightened too: a model told to find the "best match" also
+      pads `address_line_1` with its guess, which no state validation would catch.
+    - **The cost, accepted:** Groq sometimes knew an upazila-to-district mapping the
+      alias file lacks. The remedy is to add the alias — checkable and permanent —
+      rather than to trust a guess that cannot be checked. The gain: the AI can no
+      longer override a deliberate refusal, and `Sreepur`/`Kaliganj` are unmapped on
+      purpose.
+    - **wp-admin's "Create Order with AI" therefore refuses when no district resolves.**
+      That button writes with no review step between the preview and the write, so an
+      unresolved district there would create an order with no shipping line at all.
+      Applying the Outside Dhaka default instead would contradict 4.9/7.0 and would put
+      a shipping line on an order with no district to justify it. **`POST /orders` is
+      deliberately NOT changed** — the app has a dropdown and a totals warning, and
+      validation there mirrors WooCommerce rather than being stricter.
   - **An alias's VALUE in `bd-locations.php` must be a WooCommerce BD label, byte for
     byte — and the right spelling is never the obvious one.** The keys look like the
     interesting half; the value is where the file fails silently.
@@ -1853,34 +1883,18 @@ shipping fix — **confirmed on staging and in a browser**. `/ping` reports `7.0
   product does not disturb the fees in the same round trip. The two lists are
   independently scoped in the code and the contract check asserts the payload semantics,
   so this is a verification gap rather than a suspected defect.
-- **Groq's `state` is accepted without being checked against the input text, so the AI
-  path can put a district on an order that the text never mentions.** This is the 7.2
-  principle — *a wrong district is worse than none* — being enforced in the deterministic
-  matcher and bypassed entirely by the fallback.
-  - How it happens: `ai_should_call_ai()` is true whenever ANY field is empty, including
-    `state`. So a district the matcher declines to guess sends the whole message to Groq,
-    whose prompt asks for "the Bangladesh district/city name that **best matches**" —
-    an invitation to guess. `ai_merge_parsed_data()` then fills the empty state with
-    whatever came back, `ai_match_state_code()` resolves it happily because it IS a real
-    district, and `ai_ensure_state_in_address()` appends it to the address.
-  - **Observed in a live order**, which is what found the 7.4 alias bugs: an address
-    ending `নেএকোণা` got `Chandpur`, in the state field and appended to the address.
-    Chandpur and Netrakona are both Outside Dhaka, so the rate happened to match; a
-    guess landing on Dhaka or Gazipur instead would have been 80 or 120 against 150.
-  - **Not fixed, because the fix is a decision about what the AI may contribute.** The
-    options, and what each costs:
-    - *Reject any Groq district the deterministic matcher cannot also find in the text.*
-      Consistent with 7.2 and with the alias file's own remedy. Loses the case where
-      Groq correctly infers a district from an upazila our table does not list — the
-      text says `মদন` and a human knows that is Netrakona.
-    - *Keep it, and make the prompt refuse to guess* ("return empty unless the district
-      is written in the message"). Cheaper, but it is a request not a guarantee, and
-      nothing downstream would catch a model that ignored it.
-    - *Keep it and mark it* — accept the district but flag it in the response as
-      inferred, so the app can show it unconfirmed. Most work; keeps the capability.
-  - Whichever way it goes, the current behaviour should not be left undocumented: a
-    district nobody typed can reach an order, and the only evidence is that it looks
-    slightly wrong to someone who knows the area.
+- **More upazila names would be worth adding to `bd-locations.php`, now that the AI no
+  longer fills the gap.** 7.5 made the district come from the text only, so an address
+  naming an upazila the file does not list resolves to nothing and a staff member picks
+  from the dropdown. That is the safe outcome, but each missing name is a small, fixable
+  cost. Confirmed missing and NOT ambiguous: `ধামরাই` (Dhamrai, Dhaka) and `মদন` (Madan,
+  Netrakona). `শ্রীপুর` and `নবাবগঞ্জ` stay unmapped on purpose — each names an upazila in
+  several districts, and mapping either would assert a district the text never states.
+  - The file's own rules apply to each addition: the value must be a WooCommerce label
+    byte for byte, and a new key must be checked for substring collisions in both
+    directions. `state-matching.test.php` enforces the first.
+  - Worth doing from real order data rather than a gazetteer: the names that matter are
+    the ones customers actually write.
 - **Thumbnails would reintroduce a per-row lookup.** `ai_rest_product_thumbnail()` calls
   `wp_get_attachment_image_url()`, which loads an ATTACHMENT post that priming the
   product ids does not cover. Harmless today — every thumbnail in this store is null, so

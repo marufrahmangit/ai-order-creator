@@ -2,6 +2,22 @@
 
 All notable changes to AI Order Creator are documented in this file.
 
+## 7.5
+
+- **The district now comes from the customer's text, or from nowhere. The AI fallback can no longer supply one.**
+  - Groq's `state` used to be merged in whenever the deterministic pass found no district, and was then "validated" by running the matcher over **Groq's answer** — which only asks whether the string is a real district name, and Groq returns real district names. The live order ending `নেএকোণা` came back as **Chandpur**: a genuine district, nobody's district, which passed the check and was then appended to the address by `ai_ensure_state_in_address()`.
+  - The one line responsible now reads the hint from the **normalized text** only, so the question asked is *is this district in the message* rather than *does this district exist*.
+  - When the deterministic pass found nothing, that hint is empty **by construction** — same matcher, same text — so in practice Groq's state is discarded *every* time rather than sometimes. **That is the intended behaviour, not an oversight.** See *"A wrong district is worse than none"* in `location.php`: an empty district is visible (an empty dropdown in the app, and the totals saying no shipping is being added) and someone fills it in. A wrong one looks finished.
+- **Removed `state` from `ai_should_call_ai()`.** Calling the API only to throw its answer away cost a round trip on every otherwise-complete message that named no district — the common case for an address written with an unmapped area name. Groq is still called when it can genuinely contribute a name, phone or address.
+- **The prompt no longer invites a guess.** It said the state "must be the Bangladesh district/city name that **best matches**". It now says to copy the district only if the message names it, never to infer it from an area, upazila, school or landmark, and never to add one to `address_line_1` — because a model told to guess also pads the **address** with its guess, which no amount of state validation would catch.
+- **The accepted cost, stated plainly:** Groq sometimes knows an upazila-to-district mapping that `bd-locations.php` lacks (`মদন` is in Netrakona), and that is now lost. The remedy is to add the alias, which is checkable and permanent, rather than to trust a guess that cannot be checked.
+  - In exchange, **the AI can no longer override a deliberate refusal.** `Sreepur` and `Kaliganj` are unmapped on purpose — each names an upazila in several districts — and Groq was supplying a district for them anyway.
+- **Consequence handled: the wp-admin "Create Order with AI" button.** It writes the order with no review step between the preview and the write, so with no district it would have created an order with **no shipping line at all** — short by 80–150 BDT with nothing looking wrong. It now resolves the district *before* writing and **refuses**, pointing at Preview and at the app.
+  - Applying the Outside Dhaka default instead was rejected: it would contradict 4.9/7.0, which settled that no district means no shipping whether the order never had one or lost it, and it would put a shipping line on an order with no district to justify it.
+  - **The REST write path is deliberately unchanged.** `POST /orders` still accepts a partial payload, because the app has a district dropdown and a totals warning, and validation there mirrors WooCommerce rather than being stricter.
+- **`tests/parser/state-matching.test.php`: 67 → 83 assertions**, with `ai_call_groq()` stubbed to always answer `Chandpur` so the guard is **tested rather than described**.
+  - The two halves of the change are asserted **separately on purpose**: each independently stops the reported bug, so a single combined check would pass with one of them reverted and name the wrong cause. Confirmed by reverting each in turn — the laundering line alone fails one assertion, both reverted fails two.
+
 ## 7.4
 
 - **Fixed four districts that resolved to a name but no state code — so an order for any of them saved with an empty state and therefore NO SHIPPING LINE AT ALL.** Found from a live order whose address ended `নেএকোণা` and came back as *Chandpur*.

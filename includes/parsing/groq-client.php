@@ -16,7 +16,8 @@ function ai_call_groq($text, array $deterministic_data = []) {
 Rules:
 - Ignore unrelated chatter, product notes, greetings, and duplicate fragments.
 - Phone: Must be exactly 11 digits starting with 0. Convert Bangla numerals to English digits.
-- State: Must be the Bangladesh district/city name that best matches WooCommerce state input, or empty string if not found.
+- State: Copy the district ONLY if the message itself names it. Do not infer it from an area, upazila, school or landmark, and never guess: return an empty string instead. The district is resolved outside this model and your value for it is discarded, so a guess here only risks appearing in address_line_1.
+- Address: Never add a district, city or area the message does not contain.
 - Name: Customer full name only.
 - Address: Keep the full delivery address. If district/state is present in the message, keep it in address_line_1 as well.
 - Customer_note: Put any extra useful delivery note, second phone number, or leftover customer instruction here. Leave empty if nothing useful remains.

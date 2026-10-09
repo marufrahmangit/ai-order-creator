@@ -58,8 +58,21 @@ function ai_merge_parsed_data(array $primary, array $secondary) {
     return $primary;
 }
 
+/**
+ * Whether the AI fallback could still contribute anything.
+ *
+ * `state` is deliberately NOT one of these conditions. The district is taken
+ * from the customer's text or from nowhere, so Groq's answer for it is
+ * discarded - and calling the API only to throw the result away costs a round
+ * trip on every message that is otherwise complete but names no district.
+ * Before 7.5 that was the common case for an address written with an unmapped
+ * area name.
+ *
+ * @param array $data
+ * @return bool
+ */
 function ai_should_call_ai(array $data) {
-    return empty($data['name']) || empty($data['phone']) || empty($data['address_line_1']) || empty($data['state']);
+    return empty($data['name']) || empty($data['phone']) || empty($data['address_line_1']);
 }
 
 function ai_get_parsed_order_data($text) {
@@ -117,8 +130,44 @@ function ai_get_parsed_order_data($text) {
         $phones = ai_extract_phone_like_candidates($normalized_text);
     }
     $data['phone'] = $phones[0] ?? '';
-    $state_hint = ai_extract_state_hint_from_text($normalized_text);
-    $data['state'] = ai_extract_state_hint_from_text($data['state'] ?? '') ?: $state_hint;
+    /*
+     * THE DISTRICT COMES FROM THE TEXT, OR FROM NOWHERE.
+     *
+     * $state_hint is the matcher's verdict on the customer's own words: a
+     * labelled "District: ..." if there is one, otherwise any district or area
+     * alias appearing anywhere in the message. Nothing else is allowed to
+     * decide the district - in particular not the AI.
+     *
+     * This line used to be:
+     *
+     *     $data['state'] = ai_extract_state_hint_from_text($data['state']) ?: $state_hint;
+     *
+     * and $data['state'] at that point could be GROQ'S ANSWER, merged in above
+     * whenever the deterministic pass found no district. Running the matcher
+     * over that answer looks like validation but is not: it only asks "is this
+     * a real district name?", and Groq returns real district names. A live
+     * order whose address ended "নেএকোণা" came back as Chandpur, which is a
+     * genuine district, passed this check, and was then appended to the address
+     * by ai_ensure_state_in_address() - so the order carried a district nobody
+     * had typed.
+     *
+     * The check that matters is whether the district is IN THE MESSAGE, and
+     * $state_hint already answers it. Note that when the deterministic pass
+     * found nothing, $state_hint is empty BY CONSTRUCTION - it is the same
+     * matcher over the same text - so in practice this discards Groq's state
+     * every time rather than sometimes. That is the intended behaviour, not an
+     * oversight: see "A WRONG DISTRICT IS WORSE THAN NONE" in location.php.
+     * An empty district is visible - an empty dropdown in the app, and the
+     * totals say no shipping is being added - and someone fills it in. A wrong
+     * one looks finished.
+     *
+     * The cost, accepted: Groq sometimes knows an upazila-to-district mapping
+     * that bd-locations.php lacks ("মদন" is in Netrakona). The remedy is to add
+     * the alias, which is checkable and permanent, rather than to trust a guess
+     * that cannot be checked. Ambiguous names like Sreepur and Kaliganj are
+     * deliberately unmapped, and this stops the AI overriding that decision.
+     */
+    $data['state'] = ai_extract_state_hint_from_text($normalized_text);
     $data['price'] = '';
     $data['price_items'] = [];
     $existing_address = isset($data['address_line_1']) ? ai_clean_line($data['address_line_1']) : '';
