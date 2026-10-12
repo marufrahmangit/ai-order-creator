@@ -356,10 +356,46 @@ specific area, to find out what was already decided there and why.
   "Sign in with your username and password." The exceptions are messages where the
   term is what the reader must act on, all of them setup failures rather than daily
   use: `/token`'s "This site does not support application passwords" and "Application
-  passwords are disabled for this account" (an admin has to change exactly that), and
-  the network error naming the App Origin setting (the setting that has to match).
-  The trash confirmation used to say "use wp-admin" to restore, which had also been
-  untrue since step 6c; it now points at Trash on the order list.
+  passwords are disabled for this account" (an admin has to change exactly that).
+  The network error used to be a third exception, naming the App Origin setting; it is
+  not one any more — see the entry below. The trash confirmation used to say "use
+  wp-admin" to restore, which had also been untrue since step 6c; it now points at
+  Trash on the order list.
+- **An error shown to staff must contain nothing they cannot act on.** No App Origin,
+  no CORS, no API host, no `VITE_API_BASE`, no exception class. A staff member on a
+  phone, mid-order, can do exactly two things about a failed request: wait for signal,
+  or try again. So that is all the message says.
+  - `api.js` distinguishes the two, because the action differs:
+    **`navigator.onLine === false`** → *"No connection. Reconnect and try again."*;
+    **apparently online but the request failed** → *"Could not reach the server. Try
+    again."* Every view renders `error?.message || <fallback>`, so those two strings
+    are what reaches the login screen, the order list, the form's save and trash paths,
+    the parse path and the product picker. There is one place to change them.
+  - **The diagnostic was MOVED, not deleted.** `logTransportFailure()` in `api.js`
+    writes the whole thing to `console.error`: the method and full URL, what
+    `navigator.onLine` said, this page's origin, and the likely causes in order with
+    App Origin first. Anyone with devtools open gets all of it. A staff member cannot
+    be confused by any of it.
+  - **THIS IS NOT A SECURITY MEASURE AND MUST NOT BE TREATED AS ONE.** The API base URL
+    is compiled into the bundle and visible in devtools on every single request, and
+    `/wp-json` paths are public on any WordPress site. These endpoints are protected by
+    **authentication, not by being unknown**. The change looks like hiding a secret and
+    is not: it is about usefulness. **Do not extend it into obfuscation** — hashing the
+    base, stripping it from the bundle, suppressing the console output. That buys
+    nothing an attacker does not already have and makes exactly this class of failure
+    harder to diagnose. `app/test/error-messages.test.mjs` says the same thing in its
+    header, for the same reason.
+  - **The original message was correct for its moment, not a mistake.** It read "Could
+    not reach the server. Check the connection, and that the App Origin setting matches
+    this origin." While the deployment was being set up, a CORS mismatch genuinely was
+    the likeliest cause of a transport failure — the setting holds one origin and was
+    being moved between localhost and the subdomain — and naming it is what made the
+    failure diagnosable. It stopped being useful once the deployment settled and the
+    setting stopped changing. **This is a change of circumstance.**
+  - **If the app is ever pointed at a new origin, that failure mode returns** — a new
+    subdomain, a fresh deploy, a build made against the wrong site. The console output
+    is where to look, and it names the possibility first precisely so this is not lost.
+    Keep it that way.
 - The app builds nodes and sets `textContent`; it never assembles HTML from data.
   Order data is staff-pasted free text, so string-built markup would be an injection
   risk. `dom.js` has no `html` option by design.
@@ -725,13 +761,26 @@ specific area, to find out what was already decided there and why.
   Superseded the initial no-bundler plan on 2026-09-28, before any app code existed.
   Deploy is the built output, not the source tree, so `app/dist/` is what reaches the
   subdomain — the plugin is still uploaded separately and by hand.
-- **`app/.env.local` holds `VITE_API_BASE`** (the staging or live REST root the app
-  talks to) and is **intentionally untracked** — it differs per machine and per
-  environment, and it is what points a local dev server at staging rather than live.
+- **`app/.env.local` holds `VITE_API_BASE`** (the REST root the app talks to) and is
+  **intentionally untracked** — it differs per machine and per environment.
   **`app/.env.example` is the committed template**: same variable names, placeholder
   values, no real ones. Anyone cloning this copies the example to `.env.local` and
   fills it in. `.gitignore` matches `.env.local` and `.env.*.local` only, so the
   template is never caught by it.
+  - **On the machine this is developed on, `.env.local` points at LIVE, and must stay
+    that way. Do not change it.** Builds now go straight to production, because the
+    changes are small and the app is in daily use; whatever is in that file when
+    `npm run build` runs is what the next upload talks to.
+  - **The failure mode, which has no error attached to it.** `VITE_API_BASE` is
+    **compiled into the bundle at build time**, not read at runtime. So a build made
+    while the env pointed at staging is byte-for-byte plausible, passes every local
+    check, uploads without complaint, and then talks to the wrong site — reading and
+    WRITING orders there. Nothing in the app, the build or the upload names the cause.
+    The first symptom is an order list that looks subtly wrong, or a save that lands
+    somewhere nobody is looking.
+  - So: **check `app/.env.local` before `npm run build`**, and treat repointing it as a
+    deploy-affecting change rather than a local convenience. If it has to be repointed
+    for a test, point it back before the next build.
 - One order form, two ways to fill it: paste-and-parse, or type directly. Parsing is
   optional, never required.
 - District is a dropdown of WooCommerce BD states, never free text — shipping depends

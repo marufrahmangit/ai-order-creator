@@ -27,7 +27,7 @@ predates the app and is now one feature inside it, not the whole tool.
 | | repo | staging | live |
 |---|---|---|---|
 | Plugin | **7.6** | 7.1 | 7.1 |
-| App | **0.12.0** | served from `npm run dev` on a laptop | not deployed |
+| App | **0.13.0** | served from `npm run dev` on a laptop | not deployed |
 
 **The repo is five plugin versions ahead of both sites.** 7.2 through 7.6 are committed
 and none is uploaded; **one upload covers all five**. What is waiting:
@@ -77,7 +77,7 @@ the project; everything in them is needed before changing it.
 cd app && npm test
 ```
 
-Fifteen JS suites (458 assertions) plus two PHP suites (133: the parser's 92 and the
+Sixteen JS suites (525 assertions) plus two PHP suites (133: the parser's 92 and the
 order-search args' 41). Suites are discovered by filename, so a new one cannot be
 forgotten. Without a PHP on the PATH the PHP suites print **SKIPPED by name** in the
 summary rather than vanishing; set `PHP_BIN` to the portable PHP described under
@@ -259,7 +259,14 @@ Both have already cost a debugging round.
   - `VITE_API_BASE` is baked into the bundle at BUILD time, not read at runtime.
     A build made against staging keeps pointing at staging wherever it is uploaded, so
     the environment is chosen by which `.env.local` was in place when `npm run build`
-    ran. Check it before uploading to live.
+    ran. **Check it before every build**, not just before uploading to live: the wrong
+    build is indistinguishable from the right one until it is serving, and then it
+    reads and WRITES orders on the wrong site with nothing naming the cause.
+    - **`app/.env.local` on the development machine points at LIVE and must stay that
+      way.** Builds go straight to production now that the changes are small. Treat
+      repointing it as a deploy-affecting change, not a local convenience; if it is
+      repointed for a test, point it back before the next build. The reasoning is under
+      the deploy entry in `docs/DECISIONS.md`.
   - **`app/dist/` must be rebuilt before any deploy.** It is untracked, so it is
     whatever was last built on that machine — it does not follow a `git pull`, and it
     does not update when `app/src/` changes. Every app change since the last build,

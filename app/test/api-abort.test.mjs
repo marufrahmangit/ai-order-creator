@@ -227,7 +227,18 @@ function check(name, actual, expected) {
     check('network -> is an ApiError', error instanceof apiOffline.ApiError, true)
     check('network -> flagged as network', error?.isNetwork, true)
     check('network -> not mistaken for an abort', error?.name === 'AbortError', false)
-    check('network -> message names App Origin', /App Origin/.test(error?.message || ''), true)
+    /*
+     * The message must NOT name App Origin, or CORS, or the API host. It did
+     * until app 0.13.0, which was right while the deployment was being set up
+     * and became noise once it settled - a staff member cannot act on any of
+     * it. The diagnostic moved to console.error; error-messages.test.mjs
+     * asserts both halves, and src/api.js explains why it is not a secrecy
+     * measure.
+     */
+    check('network -> message is short and actionable',
+      error?.message, 'Could not reach the server. Try again.')
+    check('network -> message names no internal setup detail',
+      /App Origin|CORS|wp-json|VITE_API_BASE/.test(error?.message || ''), false)
     check('network -> message is shown', classify(error).startsWith('shown: '), true)
   }
 }

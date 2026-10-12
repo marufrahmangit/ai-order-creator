@@ -9,7 +9,7 @@
  */
 
 import './styles.css'
-import { isConfigured, apiBase } from './api.js'
+import { isConfigured, apiBase } from './api.js'  // apiBase: console diagnostics only
 import { isSignedIn, clearCredential, getCredential } from './auth.js'
 import { loadMeta, clearMeta } from './meta.js'
 import { clearProductCache } from './views/product-picker.js'
@@ -98,12 +98,28 @@ function signOut() {
   showLogin()
 }
 
+/**
+ * Startup failed, usually because /meta could not be fetched.
+ *
+ * This screen used to print `API: <base URL>` under the message. It was useful
+ * while the deployment was being set up and is noise now: a staff member cannot
+ * act on a URL, and the person who can read it in devtools on every request
+ * anyway. The base goes to the console instead - see logTransportFailure() in
+ * api.js for why that is a move and not a deletion, and for why none of this is
+ * a security measure.
+ */
 function showStartupFailure(error, retry) {
+  if (typeof console !== 'undefined' && console.error) {
+    console.error(
+      `[Shop Manager] Startup failed against ${apiBase() || '(VITE_API_BASE is empty)'}:`,
+      error,
+    )
+  }
+
   mount(
     el('main', { class: 'setup' }, [
       el('h1', { text: 'Could not start' }),
-      el('p', { text: error?.message || 'Failed to load settings from the server.' }),
-      el('p', { class: 'muted', text: `API: ${apiBase()}` }),
+      el('p', { text: error?.message || 'Could not reach the server. Try again.' }),
       el('div', { class: 'setup-actions' }, [
         el('button', { type: 'button', class: 'button primary', text: 'Try again', onClick: retry }),
         el('button', { type: 'button', class: 'button', text: 'Sign out', onClick: signOut }),

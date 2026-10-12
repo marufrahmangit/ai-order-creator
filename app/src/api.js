@@ -55,6 +55,70 @@ function basicAuthHeader(username, password) {
   return `Basic ${btoa(binary)}`
 }
 
+/**
+ * The whole diagnostic for a transport failure, written to the console.
+ *
+ * WHY IT IS HERE AND NOT ON SCREEN. Until the app was deployed, the on-screen
+ * message named the plugin's App Origin setting, because during setup a CORS
+ * mismatch genuinely was the likeliest cause of a failed request - and saying
+ * so is what made it diagnosable. That stopped being true once the deployment
+ * settled: the setting is stable, and a staff member on a phone cannot act on
+ * it, has never heard of it, and is not helped by reading it while trying to
+ * save an order. So the detail moved here rather than being deleted. Anyone
+ * with devtools open gets all of it; nobody else is shown any of it.
+ *
+ * NOT A SECURITY MEASURE, and it must not be mistaken for one or "improved"
+ * in that direction. The API base URL is compiled into the bundle and visible
+ * in devtools on every single request, and /wp-json paths are public on any
+ * WordPress site. These endpoints are protected by authentication, not by
+ * being unknown. Obfuscating any of this would buy nothing and make exactly
+ * this kind of failure harder to diagnose.
+ *
+ * IF APP ORIGIN IS EVER MISCONFIGURED AGAIN - a new subdomain, a fresh deploy,
+ * a build pointed at the wrong site - this output is what makes it findable.
+ * Keep the causes named and in likelihood order.
+ *
+ * @param {string} path   Route path, for locating the call.
+ * @param {string} method HTTP method.
+ * @param {boolean} offline What navigator.onLine reported.
+ * @param {unknown} error The original TypeError from fetch().
+ */
+function logTransportFailure(path, method, offline, error) {
+  if (typeof console === 'undefined' || !console.error) return
+
+  if (offline) {
+    console.error(
+      `[Shop Manager] ${method} ${BASE}${path} failed: the device reports it is offline.`,
+      error,
+    )
+    return
+  }
+
+  const origin = typeof location !== 'undefined' ? location.origin : '(unknown)'
+
+  console.error(
+    `[Shop Manager] ${method} ${BASE}${path} failed at the transport level - no HTTP\n` +
+    'status was returned, so the request never reached the API or its response was\n' +
+    'blocked before this code could see it.\n' +
+    '\n' +
+    `navigator.onLine reports ONLINE, and this page's origin is ${origin}.\n` +
+    'A browser reports a blocked CORS preflight and an unreachable host\n' +
+    'identically, so the likeliest causes, in order:\n' +
+    '\n' +
+    "  1. The plugin's APP ORIGIN setting does not match this origin. It holds\n" +
+    '     ONE origin, so it cannot cover a dev server and the deployed subdomain\n' +
+    '     at the same time. Check Order Ops > Settings on the site at\n' +
+    `     ${BASE || '(VITE_API_BASE is empty)'} and confirm it reads exactly ${origin}.\n` +
+    '     Symptom to expect: the preflight still returns 200 and only the real\n' +
+    '     request fails, which looks like anything but CORS.\n' +
+    '  2. The API host is unreachable, or the Order Ops plugin is deactivated.\n' +
+    '  3. This build was compiled against the wrong site. VITE_API_BASE is baked\n' +
+    '     in at BUILD time, so a build made with the env pointing elsewhere looks\n' +
+    '     identical and fails only once uploaded, naming no cause.\n',
+    error,
+  )
+}
+
 function buildUrl(path, params) {
   const url = new URL(`${BASE}${path}`)
   for (const [key, value] of Object.entries(params || {})) {
@@ -155,25 +219,23 @@ async function request(path, options = {}) {
     // fetch() rejects with a bare TypeError for DNS failures, offline, and -
     // indistinguishably - a blocked CORS preflight. The browser does know
     // whether it has a network at all, so use that to tell the two apart
-    // rather than guessing: an offline staff member needs "no connection", not
-    // a sentence about an origin setting they have never heard of.
+    // rather than guessing.
     //
     // Nothing is queued or retried. A save that could not reach the server has
     // to fail visibly so the person retries deliberately - an invisible retry
     // is how a customer ends up with two identical orders.
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-      throw new ApiError(
-        'No connection. Shop Manager needs the network to read or save orders.',
-        { code: 'aioc_app_network' },
-      )
+    const offline = typeof navigator !== 'undefined' && navigator.onLine === false
+    logTransportFailure(path, method, offline, error)
+
+    if (offline) {
+      throw new ApiError('No connection. Reconnect and try again.', {
+        code: 'aioc_app_network',
+      })
     }
 
-    // Given the App Origin setting holds a single origin, CORS is the likeliest
-    // cause of a transport failure while online, so the message names it.
-    throw new ApiError(
-      'Could not reach the server. Check the connection, and that the App Origin setting matches this origin.',
-      { code: 'aioc_app_network' },
-    )
+    throw new ApiError('Could not reach the server. Try again.', {
+      code: 'aioc_app_network',
+    })
   }
 
   // 204 has no body; nothing in aioc/v1 returns one today, but parsing it
