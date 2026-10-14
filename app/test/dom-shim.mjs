@@ -35,7 +35,17 @@ export function makeNode(tag) {
     },
     addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn) },
     removeEventListener() {},
-    setAttribute(name, value) { this.attributes[name] = String(value) },
+    /*
+     * A real DOM keeps `class` and `className` as one thing, and `id`
+     * likewise. The shim used to store them only in `attributes`, so a node
+     * built with setAttribute('class', ...) - which is the only way to build an
+     * SVG node, since el() cannot - looked classless to every test helper.
+     */
+    setAttribute(name, value) {
+      this.attributes[name] = String(value)
+      if (name === 'class') this.className = String(value)
+      if (name === 'id') this.id = String(value)
+    },
     replaceChildren() { this.children = []; this.options = [] },
     // Really detaches, so a test can tell whether a banner or sheet is still up.
     remove() {
@@ -45,12 +55,26 @@ export function makeNode(tag) {
     },
     focus() {}, select() {},
     querySelector: () => null,
-    // Real enough to observe: pwa.js marks body while a banner is up, and sets
-    // the banner's measured clearance as a custom property on it.
-    classList: (() => {
-      const set = new Set()
-      return { add: (c) => set.add(c), remove: (c) => set.delete(c), contains: (c) => set.has(c) }
-    })(),
+    /*
+     * Real enough to observe, and KEPT IN STEP WITH className, as a browser
+     * does. pwa.js marks body while a banner is up; toast.js adds a leaving
+     * class that a test has to be able to see. Before this they were separate,
+     * so classList.add() was invisible to anything reading className.
+     */
+    get classList() {
+      const node = this
+      const parts = () => String(node.className).split(' ').filter(Boolean)
+      return {
+        add: (...cls) => {
+          const next = new Set([...parts(), ...cls])
+          node.className = [...next].join(' ')
+        },
+        remove: (...cls) => {
+          node.className = parts().filter((c) => !cls.includes(c)).join(' ')
+        },
+        contains: (c) => parts().includes(c),
+      }
+    },
     style: {
       props: {},
       setProperty(name, value) { this.props[name] = String(value) },
@@ -62,10 +86,39 @@ export function makeNode(tag) {
 
 /** Installs the globals the views touch. Safe to call more than once. */
 export function installDom() {
+  const body = makeNode('body')
+
   globalThis.document = {
     createElement: makeNode,
+    // toast.js draws its marks as SVG, which createElement cannot make. The
+    // namespace is not modelled - only that the call works and yields a node.
+    createElementNS: (_ns, tag) => makeNode(tag),
     getElementById: () => makeNode('div'),
-    body: makeNode('body'),
+    body,
+    /*
+     * Enough of a selector engine for `.class`, which is all anything here
+     * asks for - toast.js looks up its own layer this way so it creates one
+     * rather than many. Walks the real body tree, so a test can tell whether
+     * the layer was reused or duplicated.
+     */
+    querySelector(selector) {
+      const cls = /^\.([\w-]+)$/.exec(String(selector))?.[1]
+      if (!cls) return null
+      const walk = (node) => {
+        if (!node || typeof node !== 'object') return null
+        if (String(node.className).split(' ').includes(cls)) return node
+        for (const kid of node.children || []) {
+          const hit = walk(kid)
+          if (hit) return hit
+        }
+        return null
+      }
+      for (const kid of body.children) {
+        const hit = walk(kid)
+        if (hit) return hit
+      }
+      return null
+    },
     addEventListener() {},
   }
 
@@ -128,7 +181,7 @@ export function loadable(relPaths) {
 /** The modules every view test needs. */
 export const VIEW_MODULES = [
   'dom.js', 'auth.js', 'api.js', 'meta.js', 'format.js', 'phone.js', 'pwa.js',
-  'reorder.js', 'quantity.js', 'exit-guard.js',
+  'reorder.js', 'quantity.js', 'exit-guard.js', 'toast.js',
   'views/login.js', 'views/orders.js', 'views/order-form.js',
   'views/product-picker.js', 'views/last-order.js',
 ]

@@ -169,8 +169,10 @@ specific area, to find out what was already decided there and why.
     `.badge-*` rule can select outside the badge.
   - `test/reorder.test.mjs` — asserts Reorder through the SAVE PAYLOAD: that items, fees,
     the note and the district are copied, that the old status is not, that shipping and
-    identity are not sent, that a typed name survives, and that the first tap on a form
-    with items only warns. It also compares the payloads from BOTH entry points for the
+    identity are not sent, that a typed name **is replaced once confirmed**, and that the
+    first tap on a form with anything to lose only warns and changes nothing. That
+    typed-name case asserted the opposite until app 0.14.0 and was inverted rather than
+    weakened, with the old reasoning kept beside it. It also compares the payloads from BOTH entry points for the
     same source order and asserts they are identical, which is the only way to show that
     and not just assert it. The payload is the right place to look because the
     dirty-marking is invisible anywhere else - a copy that forgets it renders perfectly
@@ -232,7 +234,19 @@ specific area, to find out what was already decided there and why.
     `beginScreen()` clears the guard, that Trash goes through on its own confirmation,
     and that no `beforeunload` handler exists in `src/`. Each of those was confirmed to
     fail when the code it covers is reverted.
+  - `test/toast.test.mjs` — asserts the confirmation toast for save and for trash, that
+    each carries a mark AND a label, that it leaves on its own, that the trash one is
+    outside the view so it survives the navigation, and — in both directions — that an
+    error is never toasted while warnings still render on the page beside the toast. It
+    also reads the stylesheet for the parts that are layout rather than behaviour: fixed
+    positioning, no pointer events, and reduced motion dropping the drawing rather than
+    the message.
   - The DOM shim and module loader the view tests share live in `test/dom-shim.mjs`.
+    Two fidelity notes, both fixed for 0.14.0 after they hid real behaviour: a node's
+    `class` attribute and its `className` are now the same thing, as in a browser, which
+    matters because an SVG node can only be built with `setAttribute`; and `classList`
+    now reads and writes `className` rather than a separate set, so a class added at
+    runtime is visible to anything inspecting the node.
     A new module under `src/` must be listed in its `VIEW_MODULES` or the view suites
     fail to resolve it. Its `remove()` really detaches a node, so a test can tell whether
     a banner or sheet is still up.
@@ -396,6 +410,41 @@ specific area, to find out what was already decided there and why.
     subdomain, a fresh deploy, a build made against the wrong site. The console output
     is where to look, and it names the possibility first precisely so this is not lost.
     Keep it that way.
+- **Confirmations are toasts; warnings and errors are not. The test is whether the
+  reader has anything to do.**
+  - A **confirmation** reports something that already happened and needs no action —
+    *Order saved*, *Moved to trash*. It may vanish, because nothing is lost if it is
+    missed: the list shows the result either way. It is a centred toast, about a second,
+    with a mark and a label.
+  - A **warning** needs reading and usually acting on — a line item skipped because the
+    product is gone, a quantity rounded, a discount capped at the order value. It stays
+    in the form's warnings block until the next save.
+  - An **error** means the thing did not happen. It stays in the status line so it can
+    be read and retried.
+  - **A save with warnings shows BOTH**: the toast confirms the save, the page carries
+    the warnings and the status line points at them. Those are two different facts and
+    collapsing them loses one.
+  - **Do not flatten this by making every message a toast.** It is a tempting
+    simplification — toasts look tidier than a block of text — and it would mean a
+    failed save flashing for one second and disappearing, which is how an order
+    silently does not exist. `app/test/toast.test.mjs` asserts the boundary in both
+    directions rather than only recording it here.
+  - **Why centred, and why the layer hangs off `document.body`.** Save is pinned to the
+    bottom of a form taller than the phone screen while the status line is at the top, so
+    the old "Saved." appeared where nobody was looking — the same failure the exit
+    warning had in 0.8.0, fixed the same way: put the message where the eye already is.
+    The layer is outside `#app` because `mount()` clears `#app` on navigation and the
+    trash flow navigates immediately; a toast inside the view would be destroyed at the
+    instant it was created. **The trash toast therefore starts on the form and finishes
+    on the list**, which is also where the order's absence is now visible.
+  - The layer never takes pointer events and is `position: fixed`, so a confirmation
+    cannot swallow the next tap on Save or shift the layout underneath it.
+  - **Reduced motion drops the drawing, not the toast.** The message is the point; the
+    stroke-dash animation is decoration, and suppressing the whole thing would withhold
+    the confirmation from the people who asked for less movement.
+  - Marks are **inline SVG paths**, drawn with a stroke-dash animation. No icon library
+    for what amounts to three lines; colours come from `--success` and `--danger`, and
+    `app/test/contrast.test.mjs` checks both against the toast surface.
 - The app builds nodes and sets `textContent`; it never assembles HTML from data.
   Order data is staff-pasted free text, so string-built markup would be an injection
   risk. `dom.js` has no `html` option by design.
@@ -662,17 +711,41 @@ specific area, to find out what was already decided there and why.
     order's shipping line would be wrong the moment a rate changed, and wrong again the
     moment someone edited the district after the reorder — in both cases showing a figure
     the save would not apply. The district is copied; the rate is looked up from it.
-  - The copied fields are filled **only when empty** — name, phone, address and
-    district. Someone may be correcting the customer's details, and overwriting what they
-    just typed would be worse than leaving a field blank.
+  - **The copied customer fields OVERWRITE whatever is in them** — name, phone,
+    address, district and the note. Reorder means *make this order look like that one*,
+    and that is the reason: copying the items but leaving a half-typed name in place
+    produces neither order, and the field that silently did not change is the one nobody
+    notices.
+    - **This reverses the rule that held until app 0.14.0, and the old reasoning was
+      sound.** Fields were written only when empty, because someone may be correcting a
+      customer's details and overwriting an edit in progress is worse than leaving a
+      field blank. That is a real risk and it is why the rule existed.
+    - **It was changed because in practice the confusing case was the opposite one.** A
+      typed name silently not being replaced read as Reorder having failed — the items
+      changed, the name did not, and nothing said why. Protecting the rarer case cost
+      clarity in the common one.
+    - **The protection moved rather than disappearing.** The two-tap confirmation now
+      covers the customer fields as well as items and fees, so an edit cannot be
+      discarded without a warning naming it. That is the trade: the guard is explicit
+      and visible instead of implicit and silent.
+    - Recorded at this length deliberately. Someone reading only the new code would find
+      the old rule obviously better and could reinstate it; this is the argument against
+      doing that without also moving the guard back.
   - Items and fees are marked **dirty** on copy. Both lists are all-or-nothing on
     update, so without that the payload omits them and the copy looks right on screen
     while saving nothing. `app/test/reorder.test.mjs` asserts this through the save
     payload for exactly that reason.
-  - Replacing is wholesale, not appending, so a form that already has items or fees
-    **asks once first** - the same tap-again step the navigation guard beside it uses.
-    Reordering from a list row opens a blank form, so there is nothing to overwrite and
-    nothing to confirm.
+  - Replacing is wholesale, not appending, so a form with **anything to lose asks once
+    first** — the same tap-again step the navigation guard beside it uses. What counts
+    as something to lose, since 0.14.0:
+    - any items or fees already on the form, and
+    - any copied customer field that **holds something and would end up holding
+      something else**. An empty field loses nothing, and a field that already matches
+      the source changes nothing, so neither triggers a warning for no reason.
+    - The message **names what is at risk** — "the items, fees and the customer details"
+      — rather than counting it. The point of the warning is to say what is about to go.
+    - A genuinely empty form still copies on the first tap. Reordering from a list row
+      opens a blank form, so that path never asks.
   - The row's Reorder must **stop event propagation**: the whole row is a tap target that
     opens the edit form, and without it a reorder would also navigate.
   - Stock is deliberately not pre-checked. A copied line may point at a product that has

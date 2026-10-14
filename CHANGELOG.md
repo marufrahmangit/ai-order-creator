@@ -10,6 +10,26 @@ All notable changes to AI Order Creator are documented in this file.
 > now in `DECISIONS.md` or `VERIFICATION.md`. The entries are left as written,
 > since they are a dated record; follow the split rather than the filename.
 
+## App 0.14.0
+
+- **Reorder now overwrites the customer fields instead of filling only the empty ones.** Name, phone, address, district and the note are replaced from the source order. Items, fees and the note already replaced wholesale; that is unchanged. Status, shipping, id, number and date are still not copied.
+  - **Reorder means "make this order look like that one"**, and that is the reason. Copying the items but leaving a half-typed name in place produces neither order, and the field that silently did not change is the one nobody notices.
+  - **The previous rule was deliberate and the reasoning was sound**: someone may be correcting a customer's details, and overwriting an edit in progress is worse than leaving a field blank. It was reversed because in practice the confusing case was the opposite — a typed name silently not being replaced read as Reorder having *failed*. `docs/DECISIONS.md` keeps both arguments, at length, because someone reading only the new code would find the old rule obviously better.
+  - **The protection moved rather than disappearing.** The two-tap confirmation now also fires when a copied field holds something that would end up holding something else, so an edit cannot be discarded without a warning. An empty field loses nothing and a field already matching the source changes nothing, so neither triggers one. The message **names what is at risk** — "the items, fees and the customer details" — rather than counting it. A genuinely empty form still copies on the first tap.
+  - An unknown district code is now **left alone** rather than skipped-then-cleared: blanking the district would remove shipping from the order, which is worse than keeping the one already chosen.
+- **Save and trash confirmations are a centred toast**, with a mark and a label: a green check for "Order saved", a red cross for "Moved to trash". The mark draws itself in with a stroke-dash animation, it holds for about a second, and it goes on its own — no dismiss button.
+  - **Why.** Save is pinned to the bottom of a form taller than the phone screen while the status line is at the top, so the old "Saved." appeared where nobody was looking. Same failure the exit warning had in 0.8.0, fixed the same way.
+  - **The layer hangs off `document.body`, outside `#app`.** `mount()` clears `#app` on navigation and the trash flow navigates immediately, so a toast inside the view would be destroyed at the instant it was created. **The trash toast starts on the form and finishes on the order list** — which is also where the order's absence is now visible, so that is the right place to read it.
+  - It is `position: fixed` and never accepts pointer events, so it cannot shift the layout or swallow the next tap on Save.
+  - **Reduced motion drops the drawing, not the toast.** The message is the point; the animation is decoration.
+  - Marks are inline SVG paths. No icon library for what amounts to three lines.
+- **Warnings and errors are NOT toasts, and the boundary is asserted in both directions.** A warning needs reading and often acting on; an error means the thing did not happen. Both stay on the page. **A save with warnings shows both** — the toast confirms the save, the warnings block carries the notes and the status line points at them.
+- **New `--success: #15803d`**, dark enough to clear 4.5:1 on the toast surface rather than only the 3:1 a graphic needs, so it stays usable for text. `app/test/contrast.test.mjs` gained five pairs for the toast; it measures 5.02:1 for the check and 6.57:1 for the cross.
+- **New `app/test/toast.test.mjs`** (46 assertions). Confirmed to fail when the error path is made to toast.
+- `app/test/reorder.test.mjs` had an assertion pinning the old fill-only-when-empty rule — *"a name already typed is NOT overwritten"*. **Inverted, not weakened**, and it now also asserts that the first tap changes nothing at all, plus that an empty form still copies on one tap.
+- Two DOM-shim fidelity fixes, both of which had been hiding real behaviour: a node's `class` attribute and `className` are now the same thing as in a browser (an SVG node can only be built with `setAttribute`), and `classList` now reads and writes `className` rather than a private set.
+- **Needs an app rebuild and upload to the subdomain. No plugin upload.**
+
 ## 7.7
 
 - **Shipping rates moved out of code and into the `ai_shipping_rates` option**, edited in *Order Ops → Settings* beside App Origin. **Added BD-45 Nawabganj at 120**, "Nawabganj Flat Rate".

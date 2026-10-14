@@ -27,7 +27,7 @@ predates the app and is now one feature inside it, not the whole tool.
 | | repo | staging | live |
 |---|---|---|---|
 | Plugin | **7.7** | 7.1 | 7.1 |
-| App | **0.13.0** | served from `npm run dev` on a laptop | not deployed |
+| App | **0.14.0** | served from `npm run dev` on a laptop | not deployed |
 
 **The repo is six plugin versions ahead of both sites.** 7.2 through 7.7 are committed
 and none is uploaded; **one upload covers all six**. What is waiting:
@@ -78,7 +78,7 @@ the project; everything in them is needed before changing it.
 cd app && npm test
 ```
 
-Sixteen JS suites (526 assertions) plus three PHP suites (200: the parser's 93, the
+Seventeen JS suites (582 assertions) plus three PHP suites (200: the parser's 93, the
 order-search args' 41 and the shipping rates' 66). Suites are discovered by filename, so
 a new one cannot be
 forgotten. Without a PHP on the PATH the PHP suites print **SKIPPED by name** in the
@@ -347,10 +347,16 @@ Both have already cost a debugging round.
 | 17 | CartMix logo as every icon and on the login screen; password Show/Hide | done, **unverified on a device** | app 0.10.0 |
 | 18 | Order-list search matching wp-admin's; `timing_ms` on `/orders` | done, **not yet on staging** | 7.3 / app 0.12.0 |
 | 19 | District from the customer's text only; wp-admin create refuses without one | done, **not yet on staging** | 7.5 |
+| 20 | Network/offline messages say only what staff can act on; diagnostic moved to the console | done, **needs an app rebuild and upload** | app 0.13.0 |
+| 21 | Reorder overwrites the customer fields; toast for save and trash confirmations | done, **needs an app rebuild and upload** | app 0.14.0 |
 
-**Rows 18-19 and the three correctness fixes beside them (7.2, 7.4, 7.6) are the only
-work neither site has.** The fixes are not build steps and are listed in *Where things
+**Rows 18-21 and the correctness fixes beside them (7.2, 7.4, 7.6, 7.7) are the only work
+neither site has.** The plugin fixes are not build steps and are listed in *Where things
 stand* at the top instead, with what each one does and why 7.4 matters most.
+
+**Rows 20-21 are app-only**, so they need `npm run build` and an upload to the subdomain
+rather than a plugin upload — and the subdomain is not stood up yet, so they are waiting
+on that rather than on any decision.
 
 **Steps 1-7 are the original plan, and all seven are built and verified** — the API layer
 by real requests against staging, the app in a browser as an installed PWA.

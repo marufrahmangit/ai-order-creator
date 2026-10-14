@@ -93,6 +93,23 @@ function check(name, fg, bg, floor = 4.5) {
   })
 }
 
+// ---- the confirmation toast (app 0.14.0) ---------------------------------
+//
+// The toast sits on --surface over whatever it covers. Its label is body text
+// and takes the 4.5:1 floor; the marks are graphics, which WCAG puts at 3:1 -
+// but --success is chosen dark enough to clear 4.5:1 anyway, so it can be used
+// for text later without this needing revisiting.
+check('toast label on the toast surface',
+  colour(declared('.toast-label', 'color')),
+  colour(declared('.toast', 'background')))
+check('the saved mark on the toast surface',
+  token('success'), colour(declared('.toast', 'background')), 3)
+check('the trash mark on the toast surface',
+  token('danger'), colour(declared('.toast', 'background')), 3)
+// The marks are also readable as text, which is what keeps --success reusable.
+check('--success would pass as body text on a card too', token('success'), SURFACE)
+check('--danger likewise', token('danger'), SURFACE)
+
 // ---- the pair that was invisible -----------------------------------------
 check('Open #N link on the last-order card', colour(declared('.button.link', 'color')), CARD)
 check('Reorder button label on its own surface',

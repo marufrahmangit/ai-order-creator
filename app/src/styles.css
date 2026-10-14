@@ -11,6 +11,9 @@
   --line: #e5e7eb;
   --accent: #1f2937;
   --danger: #b42318;
+  /* The confirmation green. Dark enough to clear 4.5:1 on --surface as text,
+     not only the 3:1 a graphic needs, so it can be used for either. */
+  --success: #15803d;
   --radius: 10px;
   --tap: 44px;
 }
@@ -1225,4 +1228,100 @@ body.has-pwa-banner .form-main {
   min-height: 40px;
   padding: 0 16px;
   font-weight: 600;
+}
+
+/* ---------- Confirmation toast ---------- */
+
+/*
+ * Centred over the content, for about a second, for something that happened
+ * and needs no action. See src/toast.js for why warnings and errors are not
+ * these.
+ *
+ * The layer is fixed and NEVER accepts pointer events: it sits over the form,
+ * including over Save, and a confirmation that swallowed the next tap would be
+ * worse than no confirmation. The toast itself does not re-enable them - there
+ * is nothing on it to press.
+ *
+ * It takes the element out of flow entirely, so showing one cannot shift the
+ * layout underneath - no reflow of a form someone is mid-way through reading.
+ */
+.toast-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 18rem;
+  padding: 14px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  /* Lifted off the content it covers, since it is the same colour as a card. */
+  box-shadow: 0 6px 24px rgb(17 24 39 / 18%);
+  opacity: 1;
+  transition: opacity 200ms ease;
+}
+
+.toast.is-leaving {
+  opacity: 0;
+}
+
+.toast-label {
+  color: var(--ink);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.toast-saved .toast-icon {
+  stroke: var(--success);
+}
+
+.toast-trash .toast-icon {
+  stroke: var(--danger);
+}
+
+/*
+ * The mark draws itself in.
+ *
+ * 48 comfortably exceeds the length of either path on a 24-unit box, so one
+ * value covers both without measuring each in JS. A dash longer than the path
+ * simply finishes early, which is why a single number works here.
+ */
+.toast-icon path {
+  stroke-dasharray: 48;
+  stroke-dashoffset: 48;
+  animation: toast-draw 260ms ease-out forwards;
+}
+
+.toast-trash .toast-icon path:last-child {
+  /* The second stroke of the cross follows the first rather than racing it. */
+  animation-delay: 120ms;
+}
+
+@keyframes toast-draw {
+  to { stroke-dashoffset: 0; }
+}
+
+/*
+ * Reduced motion removes the DRAWING, not the toast. The message is the point;
+ * the animation is decoration, and suppressing the whole thing would withhold
+ * the confirmation from the people who asked for less movement.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .toast-icon path {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+
+  .toast {
+    transition: none;
+  }
 }

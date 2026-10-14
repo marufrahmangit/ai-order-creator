@@ -25,6 +25,7 @@ import { ProductPicker } from './product-picker.js'
 import { LastOrderCard } from './last-order.js'
 import { normalizeBdPhone } from '../phone.js'
 import { reorderSource } from '../reorder.js'
+import { showToast } from '../toast.js'
 import { parseQuantity, formatQuantity, stepDown, stepUp } from '../quantity.js'
 import { setUnsavedCheck, requestExit, disarm } from '../exit-guard.js'
 
@@ -361,30 +362,41 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, onNewOrder, reord
     state.itemsDirty = true
     state.feesDirty = true
 
-    // Only fill what the user has not. They may be correcting the customer's
-    // details, and overwriting a name somebody just typed would be rude at best.
-    const fill = (key, control, value) => {
-      if (String(control.value).trim() !== '') return
-      if (typeof value !== 'string' || value.trim() === '') return
+    /*
+     * The customer fields are REPLACED, not filled in where empty.
+     *
+     * Reorder means "make this order look like that one". Copying the items but
+     * leaving a half-typed name in place produces neither order, and the field
+     * that silently did not change is the one nobody notices. Until app 0.14.0
+     * these were written only when empty, to protect a correction in progress;
+     * see docs/DECISIONS.md for why that was reversed and where the protection
+     * went instead - it is the two-tap confirmation, not this function.
+     */
+    const replace = (key, control, value) => {
+      if (typeof value !== 'string') return
+      if (String(control.value) === value) return
       control.value = value
       state.dirty.add(key)
     }
 
-    fill('name', nameInput, source.fields.name)
-    fill('phone', phoneInput, source.fields.phone)
-    fill('address_1', addressInput, source.fields.address_1)
-    fill('customer_note', noteInput, source.fields.customer_note)
+    replace('name', nameInput, source.fields.name)
+    replace('phone', phoneInput, source.fields.phone)
+    replace('address_1', addressInput, source.fields.address_1)
+    replace('customer_note', noteInput, source.fields.customer_note)
 
-    // The district is a select, so only a code /meta actually offers can be
-    // set - an unknown one would either be invented or silently land as ''.
+    /*
+     * The district is a select, so only a code /meta actually offers can be
+     * set - an unknown one would either be invented or silently land as ''.
+     * An unknown code is therefore LEFT ALONE rather than cleared: blanking the
+     * district would remove shipping from the order, which is a worse outcome
+     * than keeping the one already chosen.
+     */
     const district = source.fields.state
-    if (district !== '' && String(districtSelect.value).trim() === '') {
-      const offered = Array.from(districtSelect.options || [])
-        .some((option) => option.value === district)
-      if (offered) {
-        districtSelect.value = district
-        state.dirty.add('state')
-      }
+    const offered = district !== '' && Array.from(districtSelect.options || [])
+      .some((option) => option.value === district)
+    if (offered && districtSelect.value !== district) {
+      districtSelect.value = district
+      state.dirty.add('state')
     }
 
     renderItems()
@@ -398,14 +410,66 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, onNewOrder, reord
   }
 
   /**
-   * Reorder replaces the items and fees wholesale rather than appending, so a
-   * form that already has either would lose them. Confirm once in that case -
-   * the same tap-again step the navigation guard beside it uses.
+   * What a Reorder would throw away, as words, or '' if the answer is nothing.
+   *
+   * Items and fees are replaced wholesale, so any are at risk. The customer
+   * fields are now overwritten too (see applyReorder), so a field that HAS
+   * something and would end up with something else is also at risk - while one
+   * that is empty, or already matches the source, loses nothing and must not
+   * trigger a warning for no reason.
+   *
+   * Named rather than counted, because "this replaces 3 things" tells the
+   * reader less than naming the thing they are about to lose.
+   */
+  function reorderWouldDiscard(order) {
+    const source = reorderSource(order)
+    const at_risk = []
+
+    if (state.items.length > 0) at_risk.push('items')
+    if (state.fees.length > 0) at_risk.push('fees')
+
+    const changes = ([key, control]) => {
+      const next = source.fields[key]
+      if (typeof next !== 'string') return false
+      const now = String(control.value)
+      // Empty loses nothing; identical changes nothing.
+      return now.trim() !== '' && now !== next
+    }
+
+    const fields = [
+      ['name', nameInput],
+      ['phone', phoneInput],
+      ['address_1', addressInput],
+      ['customer_note', noteInput],
+    ].filter(changes)
+
+    // The district only counts when the source has one this form can actually
+    // apply - applyReorder leaves an un-offered code alone, so nothing is lost.
+    const offered = source.fields.state !== '' && Array.from(districtSelect.options || [])
+      .some((option) => option.value === source.fields.state)
+    const districtChanges = offered
+      && String(districtSelect.value).trim() !== ''
+      && districtSelect.value !== source.fields.state
+
+    if (fields.length > 0 || districtChanges) at_risk.push('the customer details')
+
+    if (at_risk.length === 0) return ''
+    if (at_risk.length === 1) return at_risk[0]
+    return `${at_risk.slice(0, -1).join(', ')} and ${at_risk[at_risk.length - 1]}`
+  }
+
+  /**
+   * Reorder replaces wholesale rather than appending, so anything already on
+   * the form would be lost. Confirm once in that case - the same tap-again step
+   * the navigation guard beside it uses.
+   *
+   * A genuinely empty form needs no confirmation: there is nothing to discard
+   * and an extra tap on the common path is friction for its own sake.
    */
   function requestReorder(order) {
-    const hasContent = state.items.length > 0 || state.fees.length > 0
+    const losing = reorderWouldDiscard(order)
 
-    if (!hasContent || reorderConfirmFor === order.id) {
+    if (losing === '' || reorderConfirmFor === order.id) {
       reorderConfirmFor = null
       applyReorder(order)
       return
@@ -413,7 +477,7 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, onNewOrder, reord
 
     reorderConfirmFor = order.id
     setMessage(
-      `This replaces the items and fees already on the form. Tap Reorder again to copy #${order.number}.`,
+      `This replaces the ${losing} already on the form. Tap Reorder again to copy #${order.number}.`,
       'error',
     )
   }
@@ -1210,6 +1274,12 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, onNewOrder, reord
     setMessage('Moving to trash…')
     try {
       await trashOrder(state.orderId)
+      // Fired BEFORE navigating, and it survives the navigation: the toast
+      // layer hangs off document.body rather than this view, which mount()
+      // clears. So it starts here and finishes on the order list - which is
+      // where the order's absence is now visible, making it the right place
+      // for it to be read. See src/toast.js.
+      showToast('trash', 'Moved to trash')
       // NOT requestClose(): unsaved edits to an order that has just been
       // trashed have nothing left to belong to, and the trash action already
       // asked for its own confirmation.
@@ -1354,7 +1424,19 @@ export function OrderFormView({ orderId, onClose, onOpenOrder, onNewOrder, reord
       applyServerOrder(result?.order)
       state.warnings = Array.isArray(result?.warnings) ? result.warnings : []
       renderWarnings()
-      setMessage('Saved.')
+
+      /*
+       * The confirmation is a toast because Save is pinned to the BOTTOM of a
+       * form taller than the screen, and the status line is at the top - the
+       * old "Saved." appeared where nobody was looking.
+       *
+       * WARNINGS ARE NOT TOASTED. A skipped line or a rounded quantity has to
+       * stay readable and often acted on, so it stays in the warnings block
+       * and the status line points at it. A save with warnings shows BOTH: the
+       * toast says it saved, the page says what to look at.
+       */
+      showToast('saved', 'Order saved')
+      setMessage(state.warnings.length > 0 ? 'Saved. See the notes above.' : '')
     } catch (error) {
       if (error?.status === 401) return
       setMessage(error?.message || 'Could not save the order.', 'error')

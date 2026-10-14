@@ -108,6 +108,17 @@ const reorderOf = (view) => byClass(view, 'last-order-reorder')
 const saveOf = (view) => findNode(view, (n) => n.className === 'button primary' && String(n.textContent).startsWith('Save'))
 const statusSelectOf = (view) => findNode(view, (n) => n.id === 'of-status')
 const lastWrite = () => [...requests].reverse().find((r) => r.method === 'POST')
+const messageOf = (view) =>
+  String(findNode(view, (n) => String(n.className).split(' ').includes('status-line'))?.textContent ?? '')
+/**
+ * Whether the form is showing any line items.
+ *
+ * Reads the empty-state placeholder rather than counting children: an empty
+ * items list still has one child, the "No items on this order yet." paragraph,
+ * so a child count reports 1 for an empty form.
+ */
+const hasItemsOn = (view) =>
+  !findNode(view, (n) => String(n.textContent).startsWith('No items on this order'))
 
 /** A fresh new-order form with the card already showing PREVIOUS. */
 async function newFormWithCard() {
@@ -179,6 +190,19 @@ async function newFormWithCard() {
   check('an empty address is filled from the copy', lastWrite()?.body?.address_1, 'Old address')
 }
 
+/*
+ * A TYPED NAME IS OVERWRITTEN, and the warning is what protects it.
+ *
+ * This block used to assert the opposite - that a typed name survived a
+ * Reorder - and it was right until app 0.14.0. The rule was reversed because
+ * the confusing case turned out to be the other one: Reorder means "make this
+ * order look like that one", and a name that silently did not change read as
+ * Reorder having failed. See docs/DECISIONS.md, which records the old reasoning
+ * as well, because it is sound in isolation and could otherwise be reinstated.
+ *
+ * The protection did not disappear - it MOVED to the two-tap confirmation,
+ * which is asserted here too: the first tap must change nothing at all.
+ */
 {
   const view = await newFormWithCard()
 
@@ -186,13 +210,33 @@ async function newFormWithCard() {
   name.value = 'Typed By Staff'
   fire(name, 'input')
 
+  // First tap: warns, changes nothing. A typed value cannot be discarded
+  // silently now that the fields are overwritten.
+  fire(reorderOf(view), 'click')
+  await settle(100)
+  check('a typed name triggers the confirmation', name.value, 'Typed By Staff')
+  check('and the warning says the customer details are at risk',
+    /customer details/.test(messageOf(view)), true)
+  check('and nothing was copied yet', hasItemsOn(view), false)
+
+  // Second tap: goes ahead.
   fire(reorderOf(view), 'click')
   await settle(100)
   fire(saveOf(view), 'click')
   await settle(300)
 
-  check('a name already typed is NOT overwritten', lastWrite()?.body?.name, 'Typed By Staff')
-  check('the address is still filled', lastWrite()?.body?.address_1, 'Old address')
+  check('confirmed, the typed name IS replaced', lastWrite()?.body?.name, 'Repeat Customer')
+  check('and the address with it', lastWrite()?.body?.address_1, 'Old address')
+  check('and the phone', lastWrite()?.body?.phone, OTHER_PHONE)
+}
+
+// An empty form needs no confirmation: nothing is at risk, and an extra tap on
+// the common path would be friction for its own sake.
+{
+  const view = await newFormWithCard()
+  fire(reorderOf(view), 'click')
+  await settle(100)
+  check('an empty form copies on the first tap', hasItemsOn(view), true)
 }
 
 // ---- editing: items and fees must be marked dirty or they are omitted -----
