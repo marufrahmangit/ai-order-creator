@@ -10,6 +10,36 @@ All notable changes to AI Order Creator are documented in this file.
 > now in `DECISIONS.md` or `VERIFICATION.md`. The entries are left as written,
 > since they are a dated record; follow the split rather than the filename.
 
+## 7.7
+
+- **Shipping rates moved out of code and into the `ai_shipping_rates` option**, edited in *Order Ops → Settings* beside App Origin. **Added BD-45 Nawabganj at 120**, "Nawabganj Flat Rate".
+  - `ai_get_shipping_rates()` is still the single accessor and **every caller is unchanged** — `ai_get_shipping_rate()`, `ai_apply_shipping()` and `GET /meta` call exactly what they called before. Only its source moved.
+  - **Why.** A rate change had become recurring, and in code that meant editing a file and uploading the plugin to two sites to alter a number: disproportionate work, an unrelated-upload risk on every change, and the two sites drifting while one is pending. 6.9 recorded this as *available if rates start changing often*. They have.
+- **Seeded lazily on first read, not on activation** — the decisive detail. There is no activation hook in this plugin and it is **already active on both sites**, so an upload does not re-activate it: a `register_activation_hook()` seed would never fire where it is needed and the sites would come up with no rates at all. Reading through a fallback also survives the option being deleted, and keeps every read path free of writes — nothing is persisted until someone saves the form.
+  - `ai_default_shipping_rates()` holds the seed (the pre-7.7 figures plus Nawabganj) and is **the only place a rate figure appears in PHP**.
+  - `ai_normalize_shipping_rates()` returns `null` rather than a partial table, so a corrupt option falls back to the **whole** seed. Half a table charges the wrong money and looks fine.
+  - A stored row with an unusable cost is **dropped**, not defaulted to zero — that district then falls to the default rate, a sane figure, instead of charging nothing deliberately.
+- **Settings UI.** One row per district (district, cost, label), add and remove, plus the default row which **cannot be removed**.
+  - The screen states the default **applies to districts not listed**, not to an order with no district. The 7.0 rule — an empty state gets **no shipping line at all** — is unchanged, and the wording is chosen so the UI does not blur it.
+  - **District is a `select` from WooCommerce's BD state list, never a text field.** A rate attached to a code WooCommerce does not know is unreachable: `ai_get_shipping_rate()` would never match it and the order would quietly take the default. That is the **7.4 defect in a new place**, so it is guarded in the UI *and* in the sanitizer, since a stale POST can still carry one.
+  - It also says **changing a rate does not re-price existing orders** — each keeps its stored figure until saved again — so nobody expects otherwise.
+- **Validation rejects rather than repairs.** `ai_sanitize_shipping_rates()` (`ai_`-prefixed, per the rule that no bare built-in is registered as a `*_callback`) refuses a non-numeric or negative cost, a duplicate district, an empty label, or an unknown district code. It returns the **currently stored** table and adds a settings error naming the **district**, not a row number — the person reading it is looking at district names.
+  - **Zero is accepted**: free delivery is a real offer. A blank row left behind by "Add rate" is **dropped**, not refused.
+- **The app needs no change and NO REBUILD.** `/meta` still returns `shipping_rates` as `{default: {cost, label}, by_state: {…}}` with costs as 2dp numeric strings through `ai_rest_money()`. That is the payoff of having put the table in `/meta` at 6.9.
+
+  | to change | what it takes |
+  |---|---|
+  | a rate's cost or label, or which districts have one | *Order Ops → Settings* on each site. **No upload, no app rebuild** |
+  | how a rate is chosen, or the response shape | a code change and **a plugin upload to both sites** |
+  | the app's rendering of shipping | a code change and **an app rebuild plus upload** |
+
+  - The option is **per-site**, so staging and live can legitimately hold different rates. `GET /meta` is how to check what a site actually has.
+- **Tests.** New `tests/rest/shipping-rates.test.php` (66 assertions): the accessor, the whole-table fallback across six kinds of bad option, `/meta`'s shape for both the seed and an admin-edited table including a fractional cost, every rejection together with a fragment of its message, and structurally that the only rate figures in `shipping.php` are inside the seed and that `meta.php` states none.
+  - `tests/parser/state-matching.test.php` **stopped asserting `'150.00'` and `'120.00'` as literals** and now reads them from the accessor, pinning the *chain* — text → district → state code → whatever rate that code carries — plus that a listed district and an unlisted one do not charge the same, which is the property actually worth guarding.
+  - `app/test/shipping-preview.test.mjs` derives its expectations from its own `/meta` fixture rather than restating the numbers, so stub and assertion cannot drift. Its figures are a fixture, not the plugin's rates.
+  - Confirmed both new guard classes fail when the duplicate-district and negative-cost checks are removed.
+- **Needs a plugin upload to both sites. No app rebuild.**
+
 ## App 0.13.0
 
 - **Network and offline messages now say only what a staff member can act on.** The failure message read *"Could not reach the server. Check the connection, and that the App Origin setting matches this origin."* and the startup-failure screen printed `API: <base URL>` under it. A staff member does not know what App Origin is and cannot change it; the URL is not something they can do anything with either.

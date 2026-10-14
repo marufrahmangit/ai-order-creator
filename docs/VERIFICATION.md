@@ -379,9 +379,11 @@ shipping fix — **confirmed on staging and in a browser**. `/ping` reports `7.0
   upload, and once on staging to confirm nothing besides 11361 was affected there.
 - **What the steps 8-11 checks did not reach.** The verified behaviour is listed under
   Verified; these specifics were not part of it:
-  - Shipping preview: that a district **outside** the rate table previews 150.00, and
-    that a SAVED order whose shipping was adjusted in wp-admin keeps showing the adjusted
-    figure rather than the table's while its district is untouched.
+  - Shipping preview: that a district **outside** the rate table previews the DEFAULT
+    rate — whatever *Order Ops → Settings* currently holds, since 7.7 made it editable;
+    read it from `GET /meta` rather than expecting a particular figure — and that a SAVED
+    order whose shipping was adjusted in wp-admin keeps showing the adjusted figure
+    rather than the table's while its district is untouched.
   - Repeat-customer card: that editing an order with its phone unchanged shows NO card,
     while changing the phone to another customer's number shows theirs; that a new
     customer's number shows nothing in the app (the endpoint's `{found: false}` is

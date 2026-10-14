@@ -43,12 +43,31 @@ const SAVED = {
   customer_note: '', total: '595.00', currency: 'BDT',
 }
 
+/*
+ * The rate table this suite's stubbed /meta serves.
+ *
+ * These figures are a FIXTURE, not the plugin's rates. Since 7.7 the real ones
+ * live in a WordPress option that an admin edits, and the app's whole job is to
+ * render whatever /meta hands it - so asserting the plugin's current figures
+ * here would make this suite fail the day someone changes a rate in wp-admin,
+ * for no defect. The plugin side is pinned in tests/rest/shipping-rates.test.php,
+ * which reads the accessor.
+ *
+ * Assertions below derive from THIS object rather than restating its numbers,
+ * so the stub and the expectation cannot drift apart.
+ */
 const SHIPPING_RATES = {
   default: { cost: '150.00', label: 'Outside Dhaka Flat Rate' },
   by_state: {
     'BD-13': { cost: '80.00', label: 'Dhaka Flat Rate' },
     'BD-18': { cost: '120.00', label: 'Gazipur Flat Rate' },
   },
+}
+
+/** The fixture's own figures, in the shape shippingRateFor() returns. */
+const expectedRate = (code) => {
+  const rate = SHIPPING_RATES.by_state[code] || SHIPPING_RATES.default
+  return { cost: Number(rate.cost), label: rate.label }
 }
 
 const requests = []
@@ -162,11 +181,13 @@ const newForm = async () => {
 // ---- the lookup itself ----------------------------------------------------
 {
   check('a district in the table gets its own rate',
-    shippingRateFor('BD-13'), { cost: 80, label: 'Dhaka Flat Rate' })
+    shippingRateFor('BD-13'), expectedRate('BD-13'))
   check('the other one too',
-    shippingRateFor('BD-18'), { cost: 120, label: 'Gazipur Flat Rate' })
+    shippingRateFor('BD-18'), expectedRate('BD-18'))
   check('a district that is SET but not in the table gets the default',
-    shippingRateFor('BD-27'), { cost: 150, label: 'Outside Dhaka Flat Rate' })
+    shippingRateFor('BD-27'), expectedRate('BD-27'))
+  check('and the default really is a different figure from the listed ones',
+    expectedRate('BD-27').cost === expectedRate('BD-13').cost, false)
   check('NO district gets no rate at all, because the server adds no line',
     shippingRateFor(''), null)
   check('and neither does whitespace', shippingRateFor('   '), null)

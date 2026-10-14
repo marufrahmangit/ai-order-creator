@@ -26,11 +26,11 @@ predates the app and is now one feature inside it, not the whole tool.
 
 | | repo | staging | live |
 |---|---|---|---|
-| Plugin | **7.6** | 7.1 | 7.1 |
+| Plugin | **7.7** | 7.1 | 7.1 |
 | App | **0.13.0** | served from `npm run dev` on a laptop | not deployed |
 
-**The repo is five plugin versions ahead of both sites.** 7.2 through 7.6 are committed
-and none is uploaded; **one upload covers all five**. What is waiting:
+**The repo is six plugin versions ahead of both sites.** 7.2 through 7.7 are committed
+and none is uploaded; **one upload covers all six**. What is waiting:
 
 | | what it does | why it matters |
 |---|---|---|
@@ -39,6 +39,7 @@ and none is uploaded; **one upload covers all five**. What is waiting:
 | **7.4** | **four districts whose alias value was not a WooCommerce label** | **those orders saved with NO shipping line — short by 80-150 BDT** |
 | 7.5 | the AI can no longer supply a district the customer never typed; wp-admin's create button refuses without one | a district nobody typed was reaching orders |
 | 7.6 | `ধামরাই` added in Bangla; Madan deliberately left out | a missing Bangla alias now costs a dropdown pick |
+| 7.7 | shipping rates became an admin setting, with Nawabganj added at 120 | a rate change is now a setting, not a two-site upload |
 
 **7.4 is the reason not to leave this sitting.** It is a money fix, and it does not repair
 orders already saved wrong — each needs one save after the upload.
@@ -77,14 +78,15 @@ the project; everything in them is needed before changing it.
 cd app && npm test
 ```
 
-Sixteen JS suites (525 assertions) plus two PHP suites (133: the parser's 92 and the
-order-search args' 41). Suites are discovered by filename, so a new one cannot be
+Sixteen JS suites (526 assertions) plus three PHP suites (200: the parser's 93, the
+order-search args' 41 and the shipping rates' 66). Suites are discovered by filename, so
+a new one cannot be
 forgotten. Without a PHP on the PATH the PHP suites print **SKIPPED by name** in the
 summary rather than vanishing; set `PHP_BIN` to the portable PHP described under
 *Conventions* in `docs/DECISIONS.md` to run them, and `REQUIRE_PHP=1` to make a skip
 count as failure.
 
-`php -l` over all 29 PHP files is the other local check, and needs that same portable PHP.
+`php -l` over all 30 PHP files is the other local check, and needs that same portable PHP.
 
 > A third check is referred to in places: a **contract check** that greps the real PHP and
 > JS source and asserts the field names and behavioural rules they must agree on, ~196
@@ -97,7 +99,7 @@ count as failure.
 local checks. What remains is deployment and verification, in this order because each
 depends on the one before:
 
-1. **Upload the plugin to staging and confirm `GET /aioc/v1/ping` reports `7.6`.** A
+1. **Upload the plugin to staging and confirm `GET /aioc/v1/ping` reports `7.7`.** A
    stale version here produces misleading 404s on new routes, so do not skip the check.
 2. **Verify 7.4 on staging**, which is the money fix: `GET /meta` returns `shipping_rates`
    with BD-13 at 80.00 and BD-18 at 120.00, and an order for Netrakona, Jhalokati,
@@ -134,8 +136,12 @@ Steps 4 and 6 can be done today. Steps 7-8 need the subdomain.
 - **`/products`' default response shape and its sort window.** That shape is the verified
   one. `/products` is also done being optimised: server-side search is 40-90ms against
   several hundred ms of round-trip, so the network dominates.
-- **The rate table in `includes/orders/shipping.php`** without reading the notes on it.
-  It is the single source of shipping truth and `/meta` serves it to the app.
+- **`ai_get_shipping_rates()` in `includes/orders/shipping.php`** without reading the
+  notes on it. It is the single accessor for shipping rates, and `/meta` serves what it
+  returns to the app. The rates themselves are **no longer in code** — they live in the
+  `ai_shipping_rates` option, edited in *Order Ops → Settings*, so **a rate change needs
+  no code change, no plugin upload and no app rebuild**. The figures still in the file
+  are a one-time seed for a site that has never saved the setting.
 - **The service worker's rule that no `/wp-json/` response is ever cached.** This app
   reads and writes live order data; a cached order list is a staff member acting on state
   that has moved.
@@ -417,6 +423,10 @@ because it defaults to `$override = false`:
 
 Four things are waiting on a judgement call rather than on work. Each is written to be
 actionable without any other context.
+
+**Closed since this list was written:** moving the shipping rates into a WordPress
+option, done in 7.7. It is now *Order Ops → Settings*, and a rate change needs no upload
+and no app rebuild — see the shipping entry in `docs/DECISIONS.md` for what still does.
 
 - **Fold the two Code Snippets entries into the plugin.** Both are required for features
   this repo owns, and both live in a database row that a migration can drop silently.

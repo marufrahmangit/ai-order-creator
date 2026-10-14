@@ -28,6 +28,11 @@
 
 define('ABSPATH', __DIR__ . '/');
 define('AIOC_PATH', dirname(__DIR__, 2) . '/');
+// Rates live in an option from 7.7. get_option() is stubbed to return the
+// default below, so ai_get_shipping_rates() falls back to the shipped seed -
+// which is the right thing for this suite: it tests the parser against the
+// rates the plugin ships with, not against whatever a site has configured.
+define('AIOC_SHIPPING_RATES_OPTION', 'ai_shipping_rates');
 
 if (!extension_loaded('mbstring')) {
     fwrite(STDERR, "mbstring is not loaded, and the parser needs it. Run with -d extension=mbstring.\n");
@@ -141,15 +146,34 @@ foreach (['jessore' => 'Jashore', 'joshore' => 'Jashore', 'jeshore' => 'Jashore'
 }
 
 // ---- the full-name cases verified on LIVE at 7.1 keep their results -------------
+//
+// The shipping figures are READ FROM THE RATE TABLE, not written out here. Rates
+// became an admin setting in 7.7, so a literal would be asserting a number this
+// suite has no business owning - and would start failing the day someone changes
+// a rate in wp-admin, for no defect. What is worth pinning is the CHAIN: text ->
+// district -> state code -> whatever rate that code carries. An unlisted
+// district must reach the default, and a listed one must reach its own entry.
+$rate_table = ai_get_shipping_rates();
+$default_rate = number_format((float) $rate_table['default']['cost'], 2, '.', '');
+$gazipur_rate = isset($rate_table['by_state']['BD-18'])
+    ? number_format((float) $rate_table['by_state']['BD-18']['cost'], 2, '.', '')
+    : $default_rate;
+
 foreach ([
-    ['Kishoreganj Sadar, Kishoreganj', 'Kishoreganj', 'BD-26', '150.00'],
-    ['Sreepur, Gazipur', 'Gazipur', 'BD-18', '120.00'],
-] as [$text, $district, $code, $rate]) {
+    ['Kishoreganj Sadar, Kishoreganj', 'Kishoreganj', 'BD-26', $default_rate, 'not in the table, so the default'],
+    ['Sreepur, Gazipur', 'Gazipur', 'BD-18', $gazipur_rate, 'its own entry'],
+] as [$text, $district, $code, $rate, $why]) {
     $state = ai_extract_state_from_text($text);
     check("\"$text\" -> $district", $state, $district);
     check("\"$text\" -> $code", ai_match_state_code($state), $code);
-    check("\"$text\" -> $rate shipping", shipping_for($state), $rate);
+    check("\"$text\" -> $rate shipping ($why)", shipping_for($state), $rate);
 }
+
+// And the distinction that matters more than any figure: BD-26 is NOT in the
+// table and BD-18 is, so if those two ever produce the same rate the table has
+// lost its per-district entry and nothing else here would say so.
+check('a listed district and an unlisted one do not charge the same',
+      $gazipur_rate === $default_rate, false);
 
 // ---- the standing hazard: district names already within each other's reach -----
 // Each of these is close enough to another district's name that only an exact

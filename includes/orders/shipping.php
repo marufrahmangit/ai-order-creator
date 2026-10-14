@@ -2,27 +2,103 @@
 if (!defined('ABSPATH')) exit;
 
 /**
- * THE shipping rate table. The only one.
+ * The rates this plugin ships with, used to seed the option and as the fallback
+ * when it is absent or unreadable.
  *
- * These rates have nothing to do with WooCommerce's shipping zones or methods -
- * WooCommerce > Settings > Shipping is never consulted. ai_apply_shipping()
- * writes a flat_rate line from this table directly.
- *
- * Returned as a structure rather than hidden in a switch so that it can be
- * READ as data - GET /meta serves it to the app, which previews the cost before
- * an order is saved. A second copy anywhere, in PHP or JS, would be a second
- * source of truth, and the one that disagreed would be the one staff read out.
+ * NOT the live table - call ai_get_shipping_rates() for that. These values are
+ * only what a site starts from, and once the setting has been saved once they
+ * are never consulted again. Changing them here changes nothing on a site that
+ * has already saved its rates.
  *
  * @return array{default:array{cost:int,label:string},by_state:array<string,array{cost:int,label:string}>}
  */
-function ai_get_shipping_rates() {
+function ai_default_shipping_rates() {
     return [
         'default'  => ['cost' => 150, 'label' => 'Outside Dhaka Flat Rate'],
         'by_state' => [
             'BD-13' => ['cost' => 80,  'label' => 'Dhaka Flat Rate'],
             'BD-18' => ['cost' => 120, 'label' => 'Gazipur Flat Rate'],
+            'BD-45' => ['cost' => 120, 'label' => 'Nawabganj Flat Rate'],
         ],
     ];
+}
+
+/**
+ * Coerce a stored rate table into the shape every caller expects, or null.
+ *
+ * Returns null rather than a partial table when the value cannot be trusted, so
+ * ai_get_shipping_rates() can fall back whole rather than serving half a table.
+ * A per-state row missing a usable cost is DROPPED rather than defaulted to
+ * zero: an unlisted district falls to the default rate, which is a sane figure,
+ * whereas a zero row would charge nothing and look deliberate.
+ *
+ * @param mixed $raw
+ * @return array|null
+ */
+function ai_normalize_shipping_rates($raw) {
+    if (!is_array($raw) || !isset($raw['default']) || !is_array($raw['default'])) {
+        return null;
+    }
+
+    if (!isset($raw['default']['cost']) || !is_numeric($raw['default']['cost'])) {
+        return null;
+    }
+
+    $rates = [
+        'default' => [
+            'cost'  => (float) $raw['default']['cost'],
+            'label' => (string) ($raw['default']['label'] ?? ''),
+        ],
+        'by_state' => [],
+    ];
+
+    $by_state = isset($raw['by_state']) && is_array($raw['by_state']) ? $raw['by_state'] : [];
+    foreach ($by_state as $code => $rate) {
+        $code = trim((string) $code);
+        if ($code === '' || !is_array($rate) || !isset($rate['cost']) || !is_numeric($rate['cost'])) {
+            continue;
+        }
+        $rates['by_state'][$code] = [
+            'cost'  => (float) $rate['cost'],
+            'label' => (string) ($rate['label'] ?? ''),
+        ];
+    }
+
+    return $rates;
+}
+
+/**
+ * THE shipping rate table. The only one.
+ *
+ * SOURCE: the `ai_shipping_rates` option, edited in Order Ops > Settings. It
+ * moved out of this file in 7.7 because a rate change had become a recurring
+ * task, and in code that meant editing a file and uploading the plugin to two
+ * sites for what is a number. A rate change is now a settings change, and
+ * needs no plugin upload and NO APP REBUILD - the app reads the table from
+ * GET /meta.
+ *
+ * SEEDED LAZILY, on first read, not on activation. There is no activation hook
+ * in this plugin and the plugin is already active on both sites, so an upload
+ * does not re-activate it - a register_activation_hook() seed would never fire
+ * where it is needed and the sites would come up with no rates at all. Reading
+ * through a fallback also survives the option being deleted, and keeps every
+ * read path free of writes: nothing is persisted until someone saves the
+ * settings form.
+ *
+ * These rates have nothing to do with WooCommerce's shipping zones or methods -
+ * WooCommerce > Settings > Shipping is never consulted. ai_apply_shipping()
+ * writes a flat_rate line from this table directly.
+ *
+ * A second copy anywhere, in PHP or JS or a test, would be a second source of
+ * truth, and the one that disagreed would be the one staff read out. Tests read
+ * this accessor; they do not restate rates.
+ *
+ * @return array{default:array{cost:float|int,label:string},by_state:array<string,array{cost:float|int,label:string}>}
+ */
+function ai_get_shipping_rates() {
+    $stored = ai_normalize_shipping_rates(get_option(AIOC_SHIPPING_RATES_OPTION, null));
+
+    return $stored === null ? ai_default_shipping_rates() : $stored;
 }
 
 /**
@@ -41,6 +117,120 @@ function ai_get_shipping_rate($state_code) {
     $code  = (string) $state_code;
 
     return isset($rates['by_state'][$code]) ? $rates['by_state'][$code] : $rates['default'];
+}
+
+/**
+ * Sanitize and VALIDATE the rate table coming out of the settings form.
+ *
+ * Registered as the setting's sanitize_callback, so it is the only way a rate
+ * reaches the option. Named ai_* per the namespace rule that no bare built-in
+ * is ever registered as a *_callback.
+ *
+ * REJECTS RATHER THAN REPAIRS. WordPress has no "refuse this save" return
+ * value for a sanitize callback, so a rejected submission adds a settings error
+ * and returns the CURRENT stored value - the form comes back with a red notice
+ * naming the problem and nothing is written. Quietly coercing a bad figure is
+ * what this must not do: a rate silently saved as 0, or attached to a district
+ * code that does not exist, charges the wrong money and looks deliberate. That
+ * is the 7.4 defect - a value that was plausible and unreachable - in a new
+ * place.
+ *
+ * What is rejected, each with its own message:
+ *   - a cost that is not numeric, or is negative
+ *   - a district code WooCommerce does not know (the select should make this
+ *     impossible, so reaching it means a crafted or stale POST)
+ *   - the same district twice
+ *   - an empty label, on any row including the default
+ *
+ * An empty district code with an otherwise empty row is DROPPED, not rejected:
+ * that is the blank row the "Add rate" button leaves behind when someone
+ * changes their mind, and erroring on it would be hostile.
+ *
+ * @param mixed $value Raw $_POST value for the option.
+ * @return array The table to store, or the current one if the submission is bad.
+ */
+function ai_sanitize_shipping_rates($value) {
+    $current = ai_get_shipping_rates();
+
+    $reject = function ($message) use ($current) {
+        add_settings_error(
+            AIOC_SHIPPING_RATES_OPTION,
+            'aioc_shipping_rates_invalid',
+            'Shipping rates not saved: ' . $message,
+            'error'
+        );
+        return $current;
+    };
+
+    if (!is_array($value)) {
+        return $reject('the form submitted nothing usable.');
+    }
+
+    // ---- the default rate, which every unlisted district falls back to ----
+    $default_cost  = isset($value['default']['cost']) ? trim((string) $value['default']['cost']) : '';
+    $default_label = isset($value['default']['label']) ? trim((string) $value['default']['label']) : '';
+
+    if ($default_cost === '' || !is_numeric($default_cost)) {
+        return $reject('the default rate needs a number for its cost.');
+    }
+    if ((float) $default_cost < 0) {
+        return $reject('the default rate cannot be negative.');
+    }
+    if ($default_label === '') {
+        return $reject('the default rate needs a label - it is what the customer sees on the order.');
+    }
+
+    $rates = [
+        'default'  => ['cost' => (float) $default_cost, 'label' => $default_label],
+        'by_state' => [],
+    ];
+
+    // ---- per-district rows -------------------------------------------------
+    $states = (function_exists('WC') && WC()) ? WC()->countries->get_states('BD') : [];
+    $rows = isset($value['by_state']) && is_array($value['by_state']) ? $value['by_state'] : [];
+
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        $code  = isset($row['code']) ? trim((string) $row['code']) : '';
+        $cost  = isset($row['cost']) ? trim((string) $row['cost']) : '';
+        $label = isset($row['label']) ? trim((string) $row['label']) : '';
+
+        // An untouched blank row from "Add rate".
+        if ($code === '' && $cost === '' && $label === '') {
+            continue;
+        }
+
+        if ($code === '') {
+            return $reject('every rate needs a district. Pick one, or remove the row.');
+        }
+        if (!is_array($states) || !isset($states[$code])) {
+            // The select cannot produce this; a stale or crafted POST can.
+            return $reject(sprintf('"%s" is not a Bangladesh district code WooCommerce knows.', $code));
+        }
+        if (isset($rates['by_state'][$code])) {
+            $name = is_array($states) ? trim((string) $states[$code]) : $code;
+            return $reject(sprintf('%s appears twice. Each district can have one rate.', $name));
+        }
+        if ($cost === '' || !is_numeric($cost)) {
+            $name = trim((string) $states[$code]);
+            return $reject(sprintf('%s needs a number for its cost.', $name));
+        }
+        if ((float) $cost < 0) {
+            $name = trim((string) $states[$code]);
+            return $reject(sprintf('%s cannot have a negative cost.', $name));
+        }
+        if ($label === '') {
+            $name = trim((string) $states[$code]);
+            return $reject(sprintf('%s needs a label - it is what the customer sees on the order.', $name));
+        }
+
+        $rates['by_state'][$code] = ['cost' => (float) $cost, 'label' => $label];
+    }
+
+    return $rates;
 }
 
 /**

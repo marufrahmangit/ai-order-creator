@@ -494,15 +494,46 @@ specific area, to find out what was already decided there and why.
   lesson: when a design question about order editing feels genuinely hard, check whether
   WooCommerce's own screen already answers it — the hard question is usually a sign that
   something has been collapsed or renamed.**
-- **Shipping is a pure function of billing state**: BD-13 → 80 Dhaka Flat Rate,
-  BD-18 → 120 Gazipur Flat Rate, all else → 150 Outside Dhaka Flat Rate. Auto-only; no
-  manual override by design.
+- **Shipping is a pure function of billing state**, and the rates are an **admin
+  setting**, not code. Auto-only; no manual override on an individual order by design.
+  - **The rates live in the `ai_shipping_rates` option**, edited in *Order Ops →
+    Settings* beside App Origin. `ai_get_shipping_rates()` is still the single accessor
+    and every caller — `ai_get_shipping_rate()`, `ai_apply_shipping()`, `/meta` — is
+    unchanged. Only its source moved, in 7.7.
+  - **Why it moved.** Rates had become a recurring change, and in code that meant
+    editing a file and uploading the plugin to two sites to alter a number. That is the
+    wrong shape for something that changes often: the work is disproportionate, every
+    change carries the risk of an unrelated upload, and the two sites drift while one is
+    pending. 7.6 and earlier recorded this as "available if rates start changing often".
+    They did.
+  - **The option is the single source. Nothing may hardcode a rate** — not PHP, not the
+    app, not a test. `ai_default_shipping_rates()` is the only place figures appear, and
+    it is a *seed*, consulted once on a site that has never saved the setting and never
+    again afterwards. Tests read the accessor;
+    `tests/rest/shipping-rates.test.php` asserts that the only rate figures in
+    `shipping.php` are inside that seed, and that `meta.php` states none at all.
+  - **Seeded lazily on first read, not on activation.** There is no activation hook in
+    this plugin, and it is already active on both sites — an upload does not re-activate
+    it, so a `register_activation_hook()` seed would never fire where it is needed and
+    the sites would come up with no rates. Reading through a fallback also survives the
+    option being deleted, and keeps read paths free of writes: nothing is persisted until
+    someone saves the form. A bad or absent option falls back to the **whole** seed, never
+    to half a table, because half a table charges the wrong money and looks fine.
+  - **The settings UI will not let a rate be unreachable.** District is a `select`
+    populated from WooCommerce's BD state list, never a text field, and
+    `ai_sanitize_shipping_rates()` rejects a code WooCommerce does not know even so,
+    since a stale POST can carry one. That is the 7.4 defect — a plausible value that
+    resolves to nothing — in a new place, and it is guarded in both.
+  - **Validation rejects, it does not repair.** A non-numeric or negative cost, a
+    duplicate district, or an empty label returns the *currently stored* table and adds a
+    settings error naming the district. Coercing a bad figure to 0 would charge nothing
+    and look deliberate. A blank row left by "Add rate" is dropped rather than refused.
   - **This is NOT WooCommerce shipping.** *WooCommerce → Settings → Shipping* is not
     consulted by this plugin at all — no zones, no methods, no instances, nothing read
-    from them. The rates live in `includes/orders/shipping.php` and `ai_apply_shipping()`
-    writes a `flat_rate` line from them directly. Anyone debugging a wrong shipping
-    figure by looking at WooCommerce's shipping settings is looking in a place this code
-    never reads.
+    from them. `ai_apply_shipping()` writes a `flat_rate` line from this plugin's own
+    table directly. Anyone debugging a wrong shipping figure by looking at WooCommerce's
+    shipping settings is looking in a place this code never reads — the rates are under
+    *Order Ops → Settings*.
   - **The rates originated as a Code Snippets snippet.** They were folded into the plugin
     in 4.9 and then deleted from Code Snippets, so only one table exists. **Check both
     sites for a resurrected copy if shipping ever behaves oddly** — two tables hooking
@@ -511,17 +542,28 @@ specific area, to find out what was already decided there and why.
     `ai_get_shipping_rate($state_code)` reads one rate out of it. `/meta` serves the
     whole table to the app. Nothing anywhere restates a rate, and
     `app/test/shipping-preview.test.mjs` asserts no rate literal exists in `app/src/`.
-  - **Changing a rate is a code edit plus a plugin upload.** The app then picks the new
-    rate up from `/meta` with **no app rebuild and no re-deploy of `app/dist/`** — but
-    the plugin still has to be uploaded, and a stale plugin means a stale rate in both
-    the app and the saved order, consistently.
-  - **Considered and NOT done: moving the rates into a WordPress option with a settings
-    field**, the way `ai_app_origin` already works. That would make a rate change an
-    admin setting with no upload at all. Not built, because the rates have changed once
-    in the life of this project and an option adds a settings UI, a migration from the
-    hardcoded values, and a second place a rate can come from. **Recorded as available
-    if rates start changing often** — the structure `ai_get_shipping_rates()` returns is
-    already the shape an option would store.
+  - **Changing a rate is now a settings change on each site. Nothing is uploaded and
+    NOTHING IS REBUILT.**
+
+    | to change | what it takes |
+    |---|---|
+    | a rate's cost or label | edit *Order Ops → Settings* on each site. No upload, **no app rebuild** |
+    | add or remove a district's rate | the same |
+    | which districts exist at all | nothing here — the list is WooCommerce's BD states |
+    | *how* a rate is chosen (the matching, the no-district rule, the response shape) | a code change and **a plugin upload to both sites** |
+    | the app's rendering of shipping | a code change and **an app rebuild plus upload** |
+
+    - **Do not rebuild the app for a rate change.** It reads the table from `/meta` on
+      load, so a new rate is live on the next launch. That is the payoff of having put
+      `shipping_rates` in `/meta` at 6.9, and rebuilding would be wasted work on a
+      deploy path that carries its own risks.
+    - **Each site is configured separately.** The option is per-site, so staging and live
+      can legitimately hold different rates — useful for testing, and a trap if one is
+      changed and the other forgotten. `GET /meta` is how to check what a site actually
+      has.
+    - **Existing orders keep their stored rate until saved.** A rate change is not
+      retroactive; saving an order re-prices it, in the app or in wp-admin. The settings
+      screen says so, so nobody expects otherwise.
   - **An order with no district has NO shipping, and that holds whether it never had one
     or had one and lost it.** `ai_apply_shipping()` removes every existing shipping line
     **unconditionally and first**, then adds one only if there is a state, then always

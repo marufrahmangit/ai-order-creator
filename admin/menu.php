@@ -39,6 +39,14 @@ add_action('admin_init', function () {
         'sanitize_callback' => 'ai_sanitize_app_origin',
         'default'           => '',
     ]);
+    // No 'default' here on purpose: an absent option is what makes
+    // ai_get_shipping_rates() fall back to the shipped seed, and declaring a
+    // default would have WordPress hand back an array this code never wrote.
+    register_setting('ai_order_creator', AIOC_SHIPPING_RATES_OPTION, [
+        'type'              => 'array',
+        'sanitize_callback' => 'ai_sanitize_shipping_rates',
+        'show_in_rest'      => false,
+    ]);
 });
 
 function ai_order_creator_page() {
